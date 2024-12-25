@@ -1,0 +1,35 @@
+{
+  "name": "game-server-router",
+  "version": "1.0.0",
+  "description": "Game Server Router",
+  "main": "build/index.js",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx watch src/index.ts",
+    "build": "npm run clean && tsc",
+    "start": "NODE_ENV=production node build/index.js",
+    "clean": "rimraf build",
+    "test": "mocha -r tsx test/*.test.ts  --exit --timeout 15000",
+    "test:repeat": "for i in {1..10}; do echo \"=== Run $i ===\"; mocha -r tsx test/**.test.ts --exit --timeout 15000; done",
+    "test:mockapi": "mocha -r tsx test/api.mock.ts --exit --timeout 15000",
+    "tt": "tsx --experimental-sqlite src/test.ts"
+  },
+  "author": "YASSINE ELOUAFI <yelouafi@gmail.com>",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "async-mutex": "^0.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-basic-auth": "^1.2.1"
+  },
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.5.9",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.1",
+    "@types/mocha": "^10.0.1",
+    "mocha": "^10.2.0",
+    "rimraf": "^5.0.0",
+    "tsx": "^4.10.2",
+    "typescript": "^5.0.4"
+  }
+}

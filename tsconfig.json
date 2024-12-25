@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "outDir": "build",
+    "target": "ES2018",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": false,
+    "allowJs": true,
+    "strictNullChecks": false,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "useDefineForClassFields": false
+  },
+  "include": ["src"]
+}

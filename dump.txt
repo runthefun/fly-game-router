@@ -1,0 +1,64 @@
+13:47:7:241    :m0      getFreeMachines
+13:47:7:243    :m1      getFreeMachines
+13:47:7:243    :m2      getFreeMachines
+13:47:7:243    :m3      getFreeMachines
+13:47:7:243    :m4      getFreeMachines
+13:47:7:244    :m5      getFreeMachines
+13:47:7:282    :m0      freeMachines = m-0-stopped, m-1-stopped, m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:282    :m0      dump m-0-stopped, m-1-stopped, m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:282    :m0      claimedMachines = 
+13:47:7:282    :m0      claim machine m-0
+13:47:7:282    :m0      starting machine m-0
+13:47:7:282    :m0      wait network m-0
+13:47:7:282    :m5      freeMachines = m-1-stopped, m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:282    :m5      dump m-0-stopped, m-1-stopped, m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:282    :m5      claimedMachines = m-0
+13:47:7:282    :m5      claim machine m-1
+13:47:7:282    :m5      starting machine m-1
+13:47:7:282    :m5      wait network m-1
+13:47:7:299    :m4      freeMachines = m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:299    :m4      dump m-0-stopped, m-1-stopped, m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:299    :m4      claimedMachines = m-0, m-1
+13:47:7:299    :m4      claim machine m-2
+13:47:7:299    :m4      starting machine m-2
+13:47:7:299    :m4      wait network m-2
+13:47:7:301    :m1      freeMachines = m-3-stopped, m-4-stopped
+13:47:7:301    :m1      dump m-0-stopped, m-1-stopped, m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:301    :m1      claimedMachines = m-0, m-1, m-2
+13:47:7:301    :m1      claim machine m-3
+13:47:7:301    :m1      starting machine m-3
+13:47:7:301    :m1      wait network m-3
+13:47:7:302    :m2      freeMachines = m-4-stopped
+13:47:7:302    :m2      dump m-0-stopped, m-1-stopped, m-2-stopped, m-3-stopped, m-4-stopped
+13:47:7:302    :m2      claimedMachines = m-0, m-1, m-2, m-3
+13:47:7:302    :m2      claim machine m-4
+13:47:7:302    :m2      starting machine m-4
+13:47:7:302    :m2      wait network m-4
+13:47:7:313    :m5      wait network done m-1
+13:47:7:313    :m5      wait start state m-1
+13:47:7:313    :m1      wait network done m-3
+13:47:7:313    :m1      wait start state m-3
+13:47:7:318    :m3      freeMachines = 
+13:47:7:318    :m3      dump m-0-stopped, m-1-starting, m-2-stopped, m-3-starting, m-4-stopped
+13:47:7:318    :m3      claimedMachines = m-0, m-1, m-2, m-3, m-4
+13:47:7:318    :m4      wait network done m-2
+13:47:7:318    :m4      wait start state m-2
+13:47:7:319    :m0      wait network done m-0
+13:47:7:319    :m0      wait start state m-0
+13:47:7:331    :m2      wait network done m-4
+13:47:7:331    :m2      wait start state m-4
+13:47:7:338    :m1      wait start state done m-3
+13:47:7:338    :m1      started machine m-3
+13:47:7:338    :m1      delete claimed machine m-3
+13:47:7:342    :m5      wait start state done m-1
+13:47:7:342    :m5      started machine m-1
+13:47:7:342    :m5      delete claimed machine m-1
+13:47:7:356    :m4      wait start state done m-2
+13:47:7:356    :m4      started machine m-2
+13:47:7:356    :m4      delete claimed machine m-2
+13:47:7:364    :m0      wait start state done m-0
+13:47:7:364    :m0      started machine m-0
+13:47:7:364    :m0      delete claimed machine m-0
+13:47:7:365    :m2      wait start state done m-4
+13:47:7:365    :m2      started machine m-4
+13:47:7:365    :m2      delete claimed machine m-4
