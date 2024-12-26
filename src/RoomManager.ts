@@ -49,7 +49,14 @@ export class RoomManager {
       roomId,
     });
 
-    let machine = machines?.find((m) => m.state === "started");
+    let machine = machines?.find(
+      /*
+        We need the isClaimed check since roomId is not cleaned up when the
+        machine is stopped. So we might end up getting a machine that's in the 
+        process of being prepared by the pool for another room.
+      */
+      (m) => m.state === "started" && !this.pool.isClaimed(m.id)
+    );
 
     if (machine != null) {
       return machine.id;

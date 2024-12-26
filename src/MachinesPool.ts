@@ -105,6 +105,11 @@ export class MachinesPool {
     delete this._claims[c.mid];
   }
 
+  isClaimed(mid: string) {
+    //
+    return this._claims[mid] != null;
+  }
+
   config(
     opts: {
       minSize?: number;
@@ -317,14 +322,23 @@ export class MachinesPool {
       }
 
       if (machine == null) {
-        machine = await this._createNonPooledMachine(opts);
-        //
-        event.result = "success";
-        event.machineId = machine.id;
-        event.pooled = false;
+        let claim: Claim;
+        try {
+          //
+          machine = await this._createNonPooledMachine(opts);
+          claim = this._claimMachine(machine.id);
 
-        //
-        return machine.id;
+          event.result = "success";
+          event.machineId = machine.id;
+          event.pooled = false;
+
+          //
+          return machine.id;
+        } finally {
+          setTimeout(() => {
+            this._removeClaim(claim);
+          }, 1000);
+        }
       }
     } finally {
       //
