@@ -315,9 +315,11 @@ export class MachinesPool {
           return machine.id;
           //
         } finally {
-          setTimeout(() => {
-            this._removeClaim(claim);
-          }, 1000);
+          if (claim) {
+            setTimeout(() => {
+              this._removeClaim(claim);
+            }, 1000);
+          }
         }
       }
 
@@ -335,9 +337,11 @@ export class MachinesPool {
           //
           return machine.id;
         } finally {
-          setTimeout(() => {
-            this._removeClaim(claim);
-          }, 1000);
+          if (claim) {
+            setTimeout(() => {
+              this._removeClaim(claim);
+            }, 1000);
+          }
         }
       }
     } finally {
