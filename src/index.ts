@@ -121,7 +121,7 @@ app.post("/join", async (req, res) => {
 
     console.log("Join request", body);
 
-    if (!body?.gameId) {
+    if (!body?.gameId || !body?.userId) {
       //
       return res.status(400).json({
         success: false,
@@ -129,10 +129,20 @@ app.post("/join", async (req, res) => {
       });
     }
 
-    console.log("Getting machine for join request", body.gameId, body.userId);
+    const { gameId } = body;
+
+    const region = req.get("Fly-Region");
+    const ip = req.get("Fly-Client-IP");
+
+    console.log(`Join request for ${gameId}; region: ${region}; ip: ${ip}`);
+
     const st = Date.now();
-    const machineId = await roomManager.getOrCreateMachineForRoom(body.gameId);
-    console.log("Got machine in", machineId, Date.now() - st);
+    const machineId = await roomManager.getOrCreateMachineForRoom({
+      roomId: gameId,
+      region,
+      ip,
+    });
+    console.log("Got machine ", machineId, "in", Date.now() - st, "ms");
 
     const replayHeader = `app=${ENV.POOL_APP};instance=${machineId}`;
 
@@ -200,5 +210,5 @@ app.post("/config-pool", basicAuthMiddleware, async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Example app listening on port http://localhost:${port}`);
+  console.log(`🕸️ listening on port http://localhost:${port}`);
 });

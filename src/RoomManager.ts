@@ -11,15 +11,21 @@ export class RoomManager {
 
   joinReqs = new Map<string, Promise<string>>();
 
-  async getOrCreateMachineForRoom(roomId: string) {
+  async getOrCreateMachineForRoom(opts: {
+    roomId: string;
+    region?: string;
+    ip?: string;
+  }) {
     //
+    let roomId = opts.roomId;
+
     let joinReq = this.joinReqs.get(roomId);
 
     if (joinReq != null) {
       return joinReq;
     }
 
-    const req = this._getOrCreateMachineMutex(roomId);
+    const req = this._getOrCreateMachineMutex(opts);
 
     this.joinReqs.set(roomId, req);
 
@@ -30,8 +36,13 @@ export class RoomManager {
     return req;
   }
 
-  async _getOrCreateMachineMutex(roomId: string) {
+  async _getOrCreateMachineMutex(opts: {
+    roomId: string;
+    region?: string;
+    ip?: string;
+  }) {
     //
+    const { roomId, region } = opts;
 
     // Find a machine that is already running for the room
     let machines = await this.pool._api.getMachinesByMetadata({
@@ -45,7 +56,7 @@ export class RoomManager {
     }
 
     // Not found, get a new machine from the pool
-    let mid = await this.pool.getMachine();
+    let mid = await this.pool.getMachine({ region });
 
     if (mid == null) {
       throw new Error("Failed to get machine from pool for room " + roomId);

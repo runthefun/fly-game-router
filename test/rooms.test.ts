@@ -54,7 +54,7 @@ describe("RoomManager tests", () => {
 
     let roomId = "room1";
 
-    let mid = await roomManager.getOrCreateMachineForRoom(roomId);
+    let mid = await roomManager.getOrCreateMachineForRoom({ roomId });
 
     const machine = await api.getMachine(mid);
 
@@ -71,8 +71,8 @@ describe("RoomManager tests", () => {
     //
     let roomId = "room1";
 
-    let mid1 = await roomManager.getOrCreateMachineForRoom(roomId);
-    let mid2 = await roomManager.getOrCreateMachineForRoom(roomId);
+    let mid1 = await roomManager.getOrCreateMachineForRoom({ roomId });
+    let mid2 = await roomManager.getOrCreateMachineForRoom({ roomId });
 
     const machine1 = await api.getMachine(mid1);
 
@@ -91,8 +91,8 @@ describe("RoomManager tests", () => {
     let roomId1 = "room1";
     let roomId2 = "room2";
 
-    let mid1 = await roomManager.getOrCreateMachineForRoom(roomId1);
-    let mid2 = await roomManager.getOrCreateMachineForRoom(roomId2);
+    let mid1 = await roomManager.getOrCreateMachineForRoom({ roomId: roomId1 });
+    let mid2 = await roomManager.getOrCreateMachineForRoom({ roomId: roomId2 });
 
     const machine1 = await api.getMachine(mid1);
     const machine2 = await api.getMachine(mid2);
@@ -118,8 +118,8 @@ describe("RoomManager tests", () => {
     //
     let roomId1 = "room1";
 
-    let req1 = roomManager.getOrCreateMachineForRoom(roomId1);
-    let req2 = roomManager.getOrCreateMachineForRoom(roomId1);
+    let req1 = roomManager.getOrCreateMachineForRoom({ roomId: roomId1 });
+    let req2 = roomManager.getOrCreateMachineForRoom({ roomId: roomId1 });
 
     let [mid1, mid2] = await Promise.all([req1, req2]);
 
@@ -134,7 +134,7 @@ describe("RoomManager tests", () => {
       "Machine should be for room1"
     );
 
-    let req3 = roomManager.getOrCreateMachineForRoom(roomId1);
+    let req3 = roomManager.getOrCreateMachineForRoom({ roomId: roomId1 });
 
     let mid3 = await req3;
 

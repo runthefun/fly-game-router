@@ -16,7 +16,7 @@ const DEFAULTS = {
 
 interface GetMachineOpts {
   tag?: string;
-  env?: Record<string, string>;
+  region?: string;
 }
 
 export interface PoolOpts {
@@ -44,6 +44,8 @@ export class MachinesPool {
   _maxSize: number;
   _pollInterval: number;
   _api: FlyApi;
+
+  _reqCountsByRegion: Record<string, number> = {};
 
   constructor(opts?: PoolOpts) {
     //
@@ -259,16 +261,24 @@ export class MachinesPool {
     return { all, free };
   }
 
-  async getMachine(tag?: string): Promise<string> {
+  async getMachine(opts?: { region: string; ip?: string }): Promise<string> {
     //
     let event: PoolEvent = {
       type: "machine-request",
+      region: opts?.region ?? "",
+      ip: opts?.ip ?? "",
       result: "failure",
       machineId: null,
       pooled: false,
       poolSize: 0,
       freeSize: 0,
     };
+
+    if (opts?.region) {
+      //
+      this._reqCountsByRegion[opts?.region] ??= 0;
+      this._reqCountsByRegion[opts?.region]++;
+    }
 
     try {
       const pooledMachines = await this.getMachines();
@@ -277,7 +287,13 @@ export class MachinesPool {
       event.poolSize = pooledMachines.all.length;
       event.freeSize = freeMachines.length;
 
-      let machine = freeMachines?.[0];
+      // if region is specified, try to get a machine in that region
+      let machine = freeMachines.find((m) => {
+        if (opts?.region) {
+          return m.region === opts.region;
+        }
+        return true;
+      });
 
       if (machine) {
         //
@@ -301,7 +317,7 @@ export class MachinesPool {
       }
 
       if (machine == null) {
-        machine = await this._createNonPooledMachine();
+        machine = await this._createNonPooledMachine(opts);
         //
         event.result = "success";
         event.machineId = machine.id;
@@ -316,7 +332,7 @@ export class MachinesPool {
     }
   }
 
-  private async _createNonPooledMachine() {
+  private async _createNonPooledMachine(opts?: GetMachineOpts) {
     //
     return this._createMachineWithRetry(
       (m) => ({
@@ -324,12 +340,13 @@ export class MachinesPool {
           ...m.config,
           auto_destroy: true,
         },
+        region: opts?.region || m.region,
       }),
       true
     );
   }
 
-  private async _createPooledMachine() {
+  private async _createPooledMachine(opts?: GetMachineOpts) {
     //
     const machine = await this._createMachineWithRetry(
       (m) => ({
@@ -341,6 +358,7 @@ export class MachinesPool {
           },
         },
         skip_launch: true,
+        region: opts?.region || m.region,
       }),
       false
     );
@@ -401,6 +419,8 @@ export class MachinesPool {
 
 interface PoolEvent {
   type: "machine-request";
+  region?: string;
+  ip?: string;
   result: "success" | "failure";
   machineId: string;
   pooled: boolean;
