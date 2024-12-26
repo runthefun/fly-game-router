@@ -1,3 +1,4 @@
+import { ENV } from "./env";
 import { MachinesPool, PoolOpts } from "./MachinesPool";
 
 export class RoomManager {
@@ -44,22 +45,10 @@ export class RoomManager {
     //
     const { roomId, region } = opts;
 
-    // Find a machine that is already running for the room
-    let machines = await this.pool._api.getMachinesByMetadata({
-      roomId,
-    });
+    let machineId = await this.getRoomMachine(roomId);
 
-    let machine = machines?.find(
-      /*
-        We need the isClaimed check since roomId is not cleaned up when the
-        machine is stopped. So we might end up getting a machine that's in the 
-        process of being prepared by the pool for another room.
-      */
-      (m) => m.state === "started" && !this.pool.isClaimed(m.id)
-    );
-
-    if (machine != null) {
-      return machine.id;
+    if (machineId != null) {
+      return machineId;
     }
 
     // Not found, get a new machine from the pool
@@ -73,5 +62,43 @@ export class RoomManager {
     await this.pool._api.updateMachineMetadata(mid, "roomId", roomId);
 
     return mid;
+  }
+
+  async getRoomMachine(roomId: string) {
+    //
+    let machines = await this.pool._api.getMachinesByMetadata({
+      roomId,
+    });
+
+    let machine = machines?.find(
+      /*
+        We need the isClaimed check since roomId is not cleaned up when the
+        machine is stopped. So we might end up getting a machine that's in the 
+        process of being prepared by the pool for another room.
+      */
+      (m) => m.state === "started" && !this.pool.isClaimed(m.id)
+    );
+
+    return machine?.id;
+  }
+
+  async getMachines() {
+    //
+    const machines = await this.pool._api.getMachines();
+
+    return machines
+      .filter((m) => m.state === "started" && !this.pool.isClaimed(m.id))
+      .map((m) => {
+        //
+        return {
+          id: m.id,
+          state: m.state,
+          region: m.region,
+          cpu_kind: m.config.guest.cpu_kind,
+          cpus: m.config.guest.cpus,
+          memory_mb: m.config.guest.memory_mb,
+          roomId: m.config.metadata.roomId,
+        };
+      });
   }
 }

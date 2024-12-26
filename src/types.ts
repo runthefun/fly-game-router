@@ -64,6 +64,7 @@ export interface Machine {
   region: string;
   instance_id: string;
   config: MachineConfig;
+  incomplete_config?: MachineConfig;
   image_ref: ImageRef;
   created_at: string;
   updated_at: string;

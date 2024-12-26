@@ -14,7 +14,7 @@ AWE_TEMPLATE_MACHINE = 'e784459b575708'
 AWE_POOL_APP = 'awe-rooms'
 
 [http_service]
-internal_port = 3000
+internal_port = 3333
 force_https = true
 auto_stop_machines = 'off'
 auto_start_machines = true

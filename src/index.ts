@@ -23,7 +23,7 @@ const basicAuthMiddleware = basicAuth({
 });
 
 const app = express();
-const port = 3000;
+const port = 3333;
 
 app.use(cors(corsOptions));
 
@@ -33,62 +33,7 @@ app.use(express.json());
 
 app.get("/", (req, res) => {
   //
-  /*
-  // send a simple html that contains a form to join a game
-  // and a list that shows state of the join requests (pending, then json response)
-
-
-  res.send(`
-    <html>
-      <body>
-        <h1>Join Game</h1>
-        <p>Enter the Game ID to join</p>
-        <input id="gameId" type="text" name="gameId" placeholder="Game ID" />
-        <button type="submit">Join</button>
-        <h2>Join Requests</h2>
-        <ul id="join-requests">
-          
-        </ul>
-
-        <script>
-          const gameIdInput = document.getElementById("gameId");
-          const joinRequestsList = document.getElementById("join-requests");
-          const joinBtn = document.querySelector("button");
-
-          const joinRequest = async (gameId) => {
-
-            const li = document.createElement("li");
-            li.innerText = "Joining " + gameId;
-
-            joinRequestsList.appendChild(li);
-
-            const res = await fetch("/join", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                gameId,
-                userId: "user-" + Math.random().toString(36).substr(2, 9),
-                username: "user-" + Math.random().toString(36).substr(2, 9),
-              }),
-            });
-
-            const data = await res.json();
-
-            li.innerText = JSON.stringify(data);
-          };
-
-          joinBtn.addEventListener("click", () => {
-            joinRequest(gameIdInput.value);
-          });
-          
-        </script>
-      </body>
-    </html>
-  `);
-  */
-  res.send("🥸🥸🥸🥸🥸🥸🥸");
+  res.send(`🥸🥸🥸🥸🥸🥸🥸`);
 });
 
 // Ensure all responses include CORS headers
@@ -209,6 +154,75 @@ app.post("/config-pool", basicAuthMiddleware, async (req, res) => {
   }
 });
 
-app.listen(port, () => {
+app.get("/rooms", async (req, res) => {
+  //
+  try {
+    //
+    const machines = await roomManager.getMachines();
+
+    return res.json({
+      success: true,
+      machines,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: e.message || "Internal Server Error",
+    });
+  }
+});
+
+app.get("/room-stats/:mid", async (req, res) => {
+  //
+  const mid = req.params.mid;
+
+  if (!mid) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid request",
+    });
+  }
+
+  const endpoint = `https://${ENV.POOL_APP}.fly.dev/getRooms`;
+
+  const data = await fetch(endpoint, {
+    headers: {
+      "fly-force-instance-id": mid,
+    },
+  }).then((res) => res.json());
+
+  res.json(data);
+});
+
+const server = app.listen(port, () => {
   console.log(`🕸️ listening on port http://localhost:${port}`);
+});
+
+server.on("upgrade", async (req, socket, head) => {
+  //
+  // req is like machineId/iptyMnQxE/WhGtZtJej?sessionId=bQtRBIY2t
+  // where iptyMnQxE is the process id
+  // and WhGtZtJej is the room id
+
+  console.log("wss connection", req.url);
+
+  // extract machine id
+  const machineId = req.url.split("/")[1];
+
+  if (!machineId) {
+    socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+    return;
+  }
+
+  const headers = [
+    "HTTP/1.1 101 Switching Protocols",
+    `fly-replay: app=${ENV.POOL_APP};instance=${machineId}`,
+  ];
+
+  const response = headers.concat("\r\n").join("\r\n");
+
+  socket.end(response);
+  console.log("socket replay", response);
+  //
 });
