@@ -1,13 +1,10 @@
 import assert from "assert";
-import { FlyMockApi } from "./FlyMoackApi";
-import { FlyApi } from "../src/FlyApi";
-import { MachinesPool } from "../src/MachinesPool";
+import { FlyMockApi } from "./FlyMockApi";
 import { RoomManager } from "../src/RoomManager";
-import { Machine } from "../src/types";
-import { delay } from "./utils";
 import { defaultConfig } from "../src/machine.config";
 
-let api = new FlyMockApi();
+let srcAppApi: FlyMockApi;
+let api: FlyMockApi;
 
 const MIN_POOL_SIZE = 5;
 const MAX_POOL_SIZE = 10;
@@ -19,8 +16,12 @@ describe("RoomManager tests", () => {
 
   before(async () => {
     //
-    api._machinesDb.push(
-      api._mockCreateMachine({
+    FlyMockApi.resetAll();
+    srcAppApi = FlyMockApi.create("srcApp");
+    api = FlyMockApi.create("default");
+
+    srcAppApi._machinesDb.push(
+      srcAppApi._mockCreateMachine({
         id: "mref",
         config: {
           ...defaultConfig,
@@ -36,7 +37,8 @@ describe("RoomManager tests", () => {
       minSize: MIN_POOL_SIZE,
       maxSize: MAX_POOL_SIZE,
       api,
-      sourceMachineId: "mref",
+      templateApp: "srcApp",
+      templateMachineId: "mref",
     });
   });
 

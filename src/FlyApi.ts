@@ -23,21 +23,10 @@ export class FlyApi {
   headers: Record<string, string>;
   fetcher: Fetcher;
 
-  /**
-   * @internal
-   */
-  static _instance = new FlyApi();
-
-  static get default() {
-    return this._instance;
-  }
-
-  constructor(
-    opts: { apiKey?: string; appId?: string; fetcher?: Fetcher } = {}
-  ) {
+  constructor(opts: { apiKey: string; appId: string; fetcher?: Fetcher }) {
     //
-    this.apiKey = opts.apiKey ?? process.env.FLY_DEPLOY_API_KEY;
-    this.appId = opts.appId ?? process.env.FLY_TARGET_APP_NAME;
+    this.apiKey = opts.apiKey;
+    this.appId = opts.appId;
     this.headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${this.apiKey}`,
@@ -194,17 +183,18 @@ export class FlyApi {
     return this.get(`/v1/apps/${this.appId}/machines/${machineId}/wait`, opts);
   }
 
-  getMachine(machineId: string): Promise<Machine> {
-    return this.get(`/v1/apps/${this.appId}/machines/${machineId}`);
+  getMachine(machineId: string, app = this.appId): Promise<Machine> {
+    return this.get(`/v1/apps/${app}/machines/${machineId}`);
   }
 
   async cloneMachine(
+    app: string,
     machineId: string,
     onOpts: (machineData: Machine) => CreateMachineOpts,
     waitStart = false
   ): Promise<Machine> {
     //
-    const machineData = await this.getMachine(machineId);
+    const machineData = await this.getMachine(machineId, app);
 
     const opts = onOpts(machineData);
 

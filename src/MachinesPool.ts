@@ -1,7 +1,6 @@
 // import { Db } from "./db";
-import { FlyApi } from "./FlyApi";
-import { defaultConfig } from "./machine.config";
-import { CreateMachineOpts, CreateMachineOptsNoConfig, Machine } from "./types";
+import type { FlyApi } from "./FlyApi";
+import { CreateMachineOpts, Machine } from "./types";
 
 interface Claim {
   uid: string;
@@ -24,7 +23,8 @@ export interface PoolOpts {
   minSize?: number;
   maxSize?: number;
   pollInterval?: number;
-  sourceMachineId: string;
+  templateApp: string;
+  templateMachineId: string;
   api?: FlyApi;
 }
 
@@ -33,10 +33,10 @@ export class MachinesPool {
   _eventLogger = new EventLogger();
   _machines: Machine[] = [];
 
-  _interval: NodeJS.Timeout;
   _active: boolean = false;
 
-  _sourceMachineId: string;
+  _templateApp: string;
+  _templateMachineId: string;
 
   _currentMaintain: Promise<unknown> = null;
 
@@ -51,8 +51,9 @@ export class MachinesPool {
     this._maxSize = opts?.maxSize || DEFAULTS.maxSize;
     this._pollInterval = opts?.pollInterval || DEFAULTS.pollInterval;
 
-    this._sourceMachineId = opts?.sourceMachineId;
-    this._api = opts?.api ?? FlyApi.default;
+    this._templateApp = opts?.templateApp;
+    this._templateMachineId = opts?.templateMachineId;
+    this._api = opts?.api;
   }
 
   /*
@@ -112,7 +113,7 @@ export class MachinesPool {
     //
     if (opts.minSize) this._minSize = opts.minSize;
     if (opts.maxSize) this._maxSize = opts.maxSize;
-    if (opts.sourceMachineId) this._sourceMachineId = opts.sourceMachineId;
+    if (opts.sourceMachineId) this._templateMachineId = opts.sourceMachineId;
   }
 
   async reset() {
@@ -143,19 +144,21 @@ export class MachinesPool {
 
     this._active = true;
 
-    this._interval = setInterval(this._onMaintain, this._pollInterval);
+    this._startScaleLoop();
   }
 
-  _onMaintain = () => {
+  private async _startScaleLoop() {
     //
-    if (this._currentMaintain == null) {
-      this._currentMaintain = this.scale().finally(() => {
-        this._currentMaintain = null;
-      });
-    }
+    while (this._active) {
+      try {
+        await this.scale();
+      } catch (e) {
+        console.error("Error scaling", e);
+      }
 
-    //
-  };
+      await new Promise((r) => setTimeout(r, this._pollInterval));
+    }
+  }
 
   stop() {
     //
@@ -165,7 +168,6 @@ export class MachinesPool {
     }
 
     this._active = false;
-    clearInterval(this._interval);
   }
 
   private _isScaling = false;
@@ -358,7 +360,7 @@ export class MachinesPool {
     waitStart: boolean
   ) {
     //
-    if (!this._sourceMachineId) {
+    if (!this._templateMachineId) {
       throw new Error("Source machine id not set");
     }
 
@@ -366,7 +368,8 @@ export class MachinesPool {
       try {
         //
         let m = await this._api.cloneMachine(
-          this._sourceMachineId,
+          this._templateApp,
+          this._templateMachineId,
           onOpts,
           waitStart
         );

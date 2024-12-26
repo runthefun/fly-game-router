@@ -36,8 +36,29 @@ export class FlyMockApi extends FlyApi {
   _autoInc = 0;
   _machinesDb: Machine[] = [];
 
-  constructor() {
-    super();
+  static _apisByApp: Record<string, FlyMockApi> = {};
+
+  static create(appName: string) {
+    if (this._apisByApp[appName] != null) {
+      throw new Error(appName + "was already created");
+    }
+    this._apisByApp[appName] = new FlyMockApi(appName);
+    return this._apisByApp[appName];
+  }
+
+  static getApi(appName: string) {
+    if (!this._apisByApp[appName]) {
+      throw new Error(appName + "was not created");
+    }
+    return this._apisByApp[appName];
+  }
+
+  static resetAll() {
+    this._apisByApp = {};
+  }
+
+  constructor(public _app: string) {
+    super({} as any);
   }
 
   _isDestroyed(m: Machine) {
@@ -348,6 +369,7 @@ export class FlyMockApi extends FlyApi {
   }
 
   async cloneMachine(
+    app: string,
     machineId: string,
     onOpts: (machineData: Machine) => CreateMachineOpts,
     waitStart = false
@@ -355,7 +377,7 @@ export class FlyMockApi extends FlyApi {
     //
     await this.networkDelay();
 
-    const machineData = await this.getMachine(machineId);
+    const machineData = await this.getMachine(machineId, app);
 
     const opts = onOpts(machineData);
 
@@ -423,8 +445,13 @@ export class FlyMockApi extends FlyApi {
     });
   }
 
-  async getMachine(machineId: string): Promise<Machine> {
+  async getMachine(machineId: string, app = this._app): Promise<Machine> {
     //
+    if (app !== this._app) {
+      //
+      return FlyMockApi.getApi(app).getMachine(machineId);
+    }
+
     await this.networkDelay();
 
     const machine = this._machinesDb.find((m) => m.id === machineId);

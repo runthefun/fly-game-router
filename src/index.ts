@@ -4,6 +4,8 @@ import cors from "cors";
 import basicAuth from "express-basic-auth";
 import { JoinReqBody } from "./types";
 import { RoomManager } from "./RoomManager";
+import { FlyApi } from "./FlyApi";
+import { ENV } from "./env";
 
 const corsOptions = {
   origin: "*",
@@ -15,7 +17,7 @@ const corsOptions = {
 
 const basicAuthMiddleware = basicAuth({
   users: {
-    admin: process.env.MONITOR_PASSWORD,
+    admin: ENV.MONITOR_PASSWORD,
   },
   challenge: true,
 });
@@ -90,19 +92,26 @@ app.get("/", (req, res) => {
 });
 
 // Ensure all responses include CORS headers
-// app.use((req: Request, res: Response, next) => {
-//   res.header("Access-Control-Allow-Origin", "*");
-//   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-//   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-//   res.header("Access-Control-Allow-Credentials", "true");
-//   next();
-// });
+app.use((req, res, next) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.set("Access-Control-Allow-Credentials", "true");
+  next();
+});
 
 const roomManager = new RoomManager({
   minSize: 10,
-  maxSize: 20,
-  sourceMachineId: process.env.FLY_SRC_MACHINE_ID,
+  maxSize: 100,
+  templateApp: ENV.TEMPLATE_APP,
+  templateMachineId: ENV.TEMPLATE_MACHINE,
+  api: new FlyApi({
+    appId: ENV.POOL_APP,
+    apiKey: ENV.FLY_API_KEY,
+  }),
 });
+
+roomManager.pool.start();
 
 app.post("/join", async (req, res) => {
   //
@@ -120,9 +129,33 @@ app.post("/join", async (req, res) => {
       });
     }
 
+    console.log("Getting machine for join request", body.gameId, body.userId);
+    const st = Date.now();
     const machineId = await roomManager.getOrCreateMachineForRoom(body.gameId);
+    console.log("Got machine in", machineId, Date.now() - st);
 
-    res.set("fly-replay", `app=game-server-v2;instance=${machineId}`).send();
+    const replayHeader = `app=${ENV.POOL_APP};instance=${machineId}`;
+
+    res.set("fly-replay", replayHeader).send();
+    //
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: e.message || "Internal Server Error",
+    });
+  }
+});
+
+app.post("/pool-reset", basicAuthMiddleware, async (req, res) => {
+  //
+  try {
+    //
+    await roomManager.pool.reset();
+    res.json({
+      success: true,
+      message: "Pool reset",
+    });
     //
   } catch (e) {
     console.error(e);

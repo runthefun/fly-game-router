@@ -1,13 +1,11 @@
 import assert from "assert";
-import { FlyMockApi } from "./FlyMoackApi";
-import { FlyApi } from "../src/FlyApi";
+import { FlyMockApi } from "./FlyMockApi";
 import { MachinesPool } from "../src/MachinesPool";
 import { Machine } from "../src/types";
-import { delay } from "./utils";
-import fs from "fs";
 import { defaultConfig } from "../src/machine.config";
 
-let api = new FlyMockApi();
+let srcAppApi: FlyMockApi;
+let api: FlyMockApi;
 
 const MIN_POOL_SIZE = 10;
 const MAX_POOL_SIZE = 20;
@@ -45,8 +43,12 @@ describe("MachinesPool tests", () => {
 
   before(async () => {
     //
-    api._machinesDb.push(
-      api._mockCreateMachine({
+    FlyMockApi.resetAll();
+    srcAppApi = FlyMockApi.create("srcApp");
+    api = FlyMockApi.create("default");
+
+    srcAppApi._machinesDb.push(
+      srcAppApi._mockCreateMachine({
         id: "mref",
         config: {
           ...defaultConfig,
@@ -63,7 +65,8 @@ describe("MachinesPool tests", () => {
       maxSize: MAX_POOL_SIZE,
       pollInterval: POLL_INTERVAL,
       api,
-      sourceMachineId: "mref",
+      templateApp: srcAppApi._app,
+      templateMachineId: "mref",
     });
   });
 

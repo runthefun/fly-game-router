@@ -1,16 +1,23 @@
 import assert from "assert";
-import { FlyMockApi } from "./FlyMoackApi";
+import { FlyMockApi } from "./FlyMockApi";
 import { defaultConfig } from "../src/machine.config";
 import { MachineState } from "../src/types";
-import { FlyApi } from "../src/FlyApi";
 import { randomDelay } from "./utils";
 
-let api = new FlyMockApi();
-FlyApi._instance = api;
+let srcAppApi: FlyMockApi;
+let api: FlyMockApi;
 
 describe("Api mock unit tests", () => {
+  before(() => {
+    //
+    FlyMockApi.resetAll();
+    srcAppApi = FlyMockApi.create("srcApp");
+    api = FlyMockApi.create("default");
+  });
+
   beforeEach(() => {
     api.reset();
+    srcAppApi.reset();
   });
 
   afterEach(() => {
@@ -234,29 +241,29 @@ describe("Api mock unit tests", () => {
       "Metadata should be deleted"
     );
   });
-});
 
-it("should clone a machine", async () => {
-  //
-  let machine = await api.createMachine({
-    config: {
-      ...defaultConfig,
-      metadata: {
-        ref: "123",
+  it("should clone a machine", async () => {
+    //
+    let machine = await srcAppApi.createMachine({
+      config: {
+        ...defaultConfig,
+        metadata: {
+          ref: "123",
+        },
       },
-    },
+    });
+
+    let machine2 = await api.cloneMachine(srcAppApi._app, machine.id, (m) => ({
+      config: m.config,
+      skip_launch: true,
+    }));
+
+    assert.equal(
+      machine2.config.metadata.ref,
+      "123",
+      "Metadata should be cloned"
+    );
   });
-
-  let machine2 = await api.cloneMachine(machine.id, (m) => ({
-    config: m.config,
-    skip_launch: true,
-  }));
-
-  assert.equal(
-    machine2.config.metadata.ref,
-    "123",
-    "Metadata should be cloned"
-  );
 });
 
 describe("Api mock, test with multiple machines", () => {
