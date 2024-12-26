@@ -83,12 +83,6 @@ export interface CreateMachineOptsNoConfig {
   skip_launch?: boolean;
 }
 
-export interface JoinReqBody {
-  gameId: string;
-  userId: string;
-  username: string;
-}
-
 export interface Logger {
   log(...args: any[]): void;
   warn: (...args: any[]) => void;

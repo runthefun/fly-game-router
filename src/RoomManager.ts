@@ -1,4 +1,16 @@
+import z from "zod";
 import { MachinesPool, PoolOpts } from "./MachinesPool";
+import { MachineConfig } from "./types";
+
+const guestSpecsSchema = z.object({
+  cpu_kind: z.enum(["shared", "performance"]),
+  cpus: z.number().gte(1).lte(8),
+  // between 512MB and 4GB
+  memory_mb: z
+    .number()
+    .gte(512)
+    .lte(8 * 1024),
+});
 
 export class RoomManager {
   //
@@ -42,7 +54,7 @@ export class RoomManager {
     ip?: string;
   }) {
     //
-    const { roomId, region } = opts;
+    const { roomId, region, ip } = opts;
 
     // Find a machine that is already running for the room
     let machines = await this.pool._api.getMachinesByMetadata({
@@ -63,7 +75,7 @@ export class RoomManager {
     }
 
     // Not found, get a new machine from the pool
-    let mid = await this.pool.getMachine({ region });
+    let mid = await this.pool.getMachine({ region, ip });
 
     if (mid == null) {
       throw new Error("Failed to get machine from pool for room " + roomId);

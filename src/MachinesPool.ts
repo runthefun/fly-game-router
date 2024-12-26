@@ -1,6 +1,11 @@
 // import { Db } from "./db";
 import type { FlyApi } from "./FlyApi";
-import { CreateMachineOpts, Machine } from "./types";
+import {
+  CreateMachineOpts,
+  Machine,
+  MachineConfig,
+  MachineGuest,
+} from "./types";
 
 interface Claim {
   uid: string;
@@ -17,6 +22,8 @@ const DEFAULTS = {
 interface GetMachineOpts {
   tag?: string;
   region?: string;
+  ip?: string;
+  config?: Partial<MachineConfig>;
 }
 
 export interface PoolOpts {
@@ -266,11 +273,12 @@ export class MachinesPool {
     return { all, free };
   }
 
-  async getMachine(opts?: { region: string; ip?: string }): Promise<string> {
+  async getMachine(opts?: GetMachineOpts): Promise<string> {
     //
     let event: PoolEvent = {
       type: "machine-request",
       region: opts?.region ?? "",
+      tag: opts?.tag ?? "",
       ip: opts?.ip ?? "",
       result: "failure",
       machineId: null,
@@ -285,65 +293,89 @@ export class MachinesPool {
       this._reqCountsByRegion[opts?.region]++;
     }
 
+    let machine: Machine;
+    let claim: Claim;
+
     try {
-      const pooledMachines = await this.getMachines();
-      const freeMachines = pooledMachines.free;
-
-      event.poolSize = pooledMachines.all.length;
-      event.freeSize = freeMachines.length;
-
-      // if region is specified, try to get a machine in that region
-      let machine = freeMachines.find((m) => {
-        if (opts?.region) {
-          return m.region === opts.region;
-        }
-        return true;
-      });
-
-      if (machine) {
+      //
+      if (!opts?.config) {
         //
-        let claim = this._claimMachine(machine.id);
-
         try {
           //
-          await this._startMachine(machine);
+          const pooledMachines = await this.getMachines();
+          const freeMachines = pooledMachines.free;
 
-          event.result = "success";
-          event.machineId = machine.id;
-          event.pooled = true;
+          event.poolSize = pooledMachines.all.length;
+          event.freeSize = freeMachines.length;
 
-          return machine.id;
+          // if region is specified, try to get a machine in that region
+          machine = freeMachines.find((m) => {
+            if (opts?.region) {
+              return m.region === opts.region;
+            }
+            return true;
+          });
+
+          if (machine) {
+            //
+            claim = this._claimMachine(machine.id);
+            await this._startMachine(machine);
+
+            event.result = "success";
+            event.machineId = machine.id;
+            event.pooled = true;
+
+            return machine.id;
+          }
           //
-        } finally {
-          setTimeout(() => {
-            this._removeClaim(claim);
-          }, 1000);
+        } catch (e) {
+          console.error("Error getting machine", e);
         }
       }
 
       if (machine == null) {
-        let claim: Claim;
-        try {
-          //
-          machine = await this._createNonPooledMachine(opts);
-          claim = this._claimMachine(machine.id);
+        //
+        machine = await this._createNonPooledMachine(opts);
+        claim = this._claimMachine(machine.id);
 
-          event.result = "success";
-          event.machineId = machine.id;
-          event.pooled = false;
-
-          //
-          return machine.id;
-        } finally {
-          setTimeout(() => {
-            this._removeClaim(claim);
-          }, 1000);
-        }
+        return machine.id;
       }
     } finally {
       //
+      if (claim) {
+        setTimeout(() => {
+          this._removeClaim(claim);
+        }, 1000);
+      }
+
+      if (machine) {
+        event.result = "success";
+        event.machineId = machine.id;
+        event.pooled = this.isPooled(machine);
+      }
       this._eventLogger.logEvent(event);
     }
+  }
+
+  private _mergeConfig(a: MachineConfig, b: Partial<MachineConfig> = {}) {
+    //
+    const r: MachineConfig = {
+      ...a,
+      guest: b.guest || a.guest,
+      env: {
+        ...(a.env || {}),
+        ...(b.env || {}),
+      },
+      auto_destroy: b.auto_destroy ?? a.auto_destroy,
+      image: b.image || a.image,
+      metadata: {
+        ...(a.metadata || {}),
+        ...(b.metadata || {}),
+      },
+      restart: b.restart || a.restart,
+    };
+
+    return r;
   }
 
   private async _createNonPooledMachine(opts?: GetMachineOpts) {
@@ -351,8 +383,8 @@ export class MachinesPool {
     return this._createMachineWithRetry(
       (m) => ({
         config: {
-          ...m.config,
-          auto_destroy: true,
+          ...this._mergeConfig(m.config, opts?.config),
+          auto_destroy: opts?.config?.auto_destroy ?? true,
         },
         region: opts?.region || m.region,
       }),
@@ -362,20 +394,21 @@ export class MachinesPool {
 
   private async _createPooledMachine(opts?: GetMachineOpts) {
     //
-    const machine = await this._createMachineWithRetry(
-      (m) => ({
+    const machine = await this._createMachineWithRetry((m) => {
+      //
+      const config = this._mergeConfig(m.config, opts?.config);
+      return {
         config: {
-          ...m.config,
+          ...config,
           metadata: {
-            ...m.config.metadata,
+            ...config.metadata,
             pooled: "true",
           },
         },
         skip_launch: true,
         region: opts?.region || m.region,
-      }),
-      false
-    );
+      };
+    }, false);
 
     await this._api.waitMachine(machine.id, {
       state: "stopped",
@@ -435,6 +468,7 @@ interface PoolEvent {
   type: "machine-request";
   region?: string;
   ip?: string;
+  tag?: string;
   result: "success" | "failure";
   machineId: string;
   pooled: boolean;

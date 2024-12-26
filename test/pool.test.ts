@@ -3,6 +3,8 @@ import { FlyMockApi } from "./FlyMockApi";
 import { MachinesPool } from "../src/MachinesPool";
 import { Machine } from "../src/types";
 import { defaultConfig } from "../src/machine.config";
+import { delay } from "./utils";
+import { time } from "console";
 
 let srcAppApi: FlyMockApi;
 let api: FlyMockApi;
@@ -188,6 +190,37 @@ describe("MachinesPool tests", () => {
     await api.stopMachine(mid);
   });
 
+  it("should get non pooled machines if pool if a config is speciefied", async () => {
+    //
+    await pool.scale();
+
+    // fill the pool
+    await startMachines(pool._minSize);
+
+    const config = {
+      guest: { cpu_kind: "performance", cpus: 4, memory_mb: 2048 },
+      env: { timeout: Date.now() + 1000, tag: "t1" },
+      metadata: { ref: "mref" },
+    };
+
+    // get a machine
+    let mid = await pool.getMachine({
+      config,
+    });
+
+    let machine = await api.getMachine(mid);
+    assertNonPooled(machine);
+
+    assert.equal(machine.config.guest.cpu_kind, "performance");
+    assert.equal(machine.config.guest.cpus, 4);
+    assert.equal(machine.config.guest.memory_mb, 2048);
+    assert.equal(machine.config.metadata.ref, "mref");
+    assert.equal(machine.config.env.timeout, config.env.timeout);
+    assert.equal(machine.config.env.tag, config.env.tag);
+
+    await api.stopMachine(mid);
+  });
+
   it("should handle concurrent getMachine calls", async () => {
     //
     await pool.scale();
@@ -225,7 +258,7 @@ describe("MachinesPool tests", () => {
     let mids = await Promise.all(
       Array(SIZE)
         .fill(0)
-        .map((_, i) => pool.getMachine("m" + i))
+        .map((_, i) => pool.getMachine({ tag: "m" + i }))
     );
 
     let machines = await Promise.all(mids.map((mid) => api.getMachine(mid)));

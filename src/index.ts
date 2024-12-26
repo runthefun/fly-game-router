@@ -1,11 +1,13 @@
 import "dotenv/config";
+import z from "zod";
 import express from "express";
 import cors from "cors";
 import basicAuth from "express-basic-auth";
-import { JoinReqBody } from "./types";
 import { RoomManager } from "./RoomManager";
 import { FlyApi } from "./FlyApi";
 import { ENV } from "./env";
+import { getGameMetadata } from "./db";
+import { MachineConfig } from "./types";
 
 const corsOptions = {
   origin: "*",
@@ -111,13 +113,42 @@ const roomManager = new RoomManager({
   }),
 });
 
+// This needs more testing, so we're disabling it for now
 // roomManager.pool.start();
+
+const gameMetadataReqs: Record<string, Promise<any>> = {};
+
+async function fetchGameMetadata(gameId: string) {
+  //
+  let req = gameMetadataReqs[gameId];
+
+  if (req != null) {
+    return req;
+  }
+
+  req = getGameMetadata(gameId);
+  gameMetadataReqs[gameId] = req;
+  req.finally(() => {
+    setTimeout(() => delete gameMetadataReqs[gameId], 2000);
+  });
+
+  return req;
+}
+
+/** schema for req body */
+
+const joinReqBodySchema = z.object({
+  gameId: z.string().nonempty(),
+  userId: z.string().nonempty(),
+  username: z.string().optional(),
+  draft: z.boolean().optional(),
+});
 
 app.post("/join", async (req, res) => {
   //
   try {
     //
-    const body = req.body as JoinReqBody;
+    const body = joinReqBodySchema.parse(req.body);
 
     console.log("Join request", body);
 

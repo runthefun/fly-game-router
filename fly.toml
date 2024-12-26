@@ -12,6 +12,8 @@ primary_region = 'iad'
 AWE_TEMPLATE_APP = 'awe-game-server'
 AWE_TEMPLATE_MACHINE = 'e784459b575708'
 AWE_POOL_APP = 'awe-rooms'
+FIREBASE_ADMIN_PROJECT_ID = 'cyber-art-prod'
+FIREBASE_ADMIN_CLIENT_EMAIL = 'firebase-adminsdk-no5jv@cyber-art-prod.iam.gserviceaccount.com'
 
 [http_service]
 internal_port = 3000
