@@ -17,6 +17,8 @@ const DEFAULTS = {
 interface GetMachineOpts {
   tag?: string;
   region?: string;
+  ip?: string;
+  skipStart?: boolean;
 }
 
 export interface PoolOpts {
@@ -266,7 +268,7 @@ export class MachinesPool {
     return { all, free };
   }
 
-  async getMachine(opts?: { region: string; ip?: string }): Promise<string> {
+  async getMachine(opts?: GetMachineOpts): Promise<string> {
     //
     let event: PoolEvent = {
       type: "machine-request",
@@ -292,21 +294,32 @@ export class MachinesPool {
       event.poolSize = pooledMachines.all.length;
       event.freeSize = freeMachines.length;
 
+      // console.log(
+      //   "[POOL] getMachine",
+      //   "region",
+      //   opts.region,
+      //   "free machines",
+      //   freeMachines.length
+      // );
+
       // if region is specified, try to get a machine in that region
-      let machine = freeMachines.find((m) => {
-        if (opts?.region) {
-          return m.region === opts.region;
-        }
-        return true;
-      });
+      let machine = opts?.region
+        ? freeMachines.find((m) => m.region === opts.region)
+        : freeMachines[0];
+
+      machine ??= freeMachines[0];
 
       if (machine) {
         //
+        // console.log("[POOL] getMachine", "found free machine", machine.id);
+
         let claim = this._claimMachine(machine.id);
 
         try {
           //
-          await this._startMachine(machine);
+          if (!opts?.skipStart) {
+            await this._startMachine(machine);
+          }
 
           event.result = "success";
           event.machineId = machine.id;
@@ -324,6 +337,11 @@ export class MachinesPool {
       }
 
       if (machine == null) {
+        // console.log(
+        //   "[POOL] getMachine",
+        //   "No free machine in pool, creating new machine"
+        // );
+
         let claim: Claim;
         try {
           //
@@ -359,6 +377,7 @@ export class MachinesPool {
           auto_destroy: true,
         },
         region: opts?.region || m.region,
+        skip_launch: opts?.skipStart,
       }),
       true
     );

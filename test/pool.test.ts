@@ -54,6 +54,7 @@ describe("MachinesPool tests", () => {
           ...defaultConfig,
           metadata: { ref: "mref" },
         },
+        region: "lhr",
       })
     );
   });
@@ -106,7 +107,7 @@ describe("MachinesPool tests", () => {
 
   it("should create a non pooled machine if not active", async () => {
     //
-    let mid = await pool.getMachine();
+    let mid = await pool.getMachine({ region: "mad" });
 
     const machine = await api.getMachine(mid);
     assertNonPooled(machine);
@@ -165,7 +166,7 @@ describe("MachinesPool tests", () => {
     //
     await pool.scale();
 
-    let mid = await pool.getMachine();
+    let mid = await pool.getMachine({ region: "mad" });
 
     let machine = await api.getMachine(mid);
     assert.equal(machine.state, "started");
@@ -180,7 +181,7 @@ describe("MachinesPool tests", () => {
     await startMachines(pool._minSize);
 
     // get a machine
-    let mid = await pool.getMachine();
+    let mid = await pool.getMachine({ region: "mad" });
 
     let machine = await api.getMachine(mid);
     assertNonPooled(machine);
@@ -193,10 +194,10 @@ describe("MachinesPool tests", () => {
     await pool.scale();
 
     let mids = await Promise.all([
-      pool.getMachine(),
-      pool.getMachine(),
-      pool.getMachine(),
-      pool.getMachine(),
+      pool.getMachine({ region: "mad" }),
+      pool.getMachine({ region: "mad" }),
+      pool.getMachine({ region: "mad" }),
+      pool.getMachine({ region: "mad" }),
     ]);
 
     let machines = await Promise.all(mids.map((mid) => api.getMachine(mid)));
@@ -225,7 +226,7 @@ describe("MachinesPool tests", () => {
     let mids = await Promise.all(
       Array(SIZE)
         .fill(0)
-        .map((_, i) => pool.getMachine("m" + i))
+        .map((_, i) => pool.getMachine({ tag: "m" + i }))
     );
 
     let machines = await Promise.all(mids.map((mid) => api.getMachine(mid)));
@@ -261,7 +262,7 @@ describe("MachinesPool tests", () => {
     api.setMaxFailureCount(5);
 
     try {
-      let mid = await pool.getMachine();
+      let mid = await pool.getMachine({ region: "mad" });
       assert.fail("Should not get a machine");
     } catch (e) {
       assert.equal(e.message, "Failed to create machine");
@@ -270,7 +271,7 @@ describe("MachinesPool tests", () => {
     api.resetFailureCount();
     api.setMaxFailureCount(2);
 
-    let mid = await pool.getMachine();
+    let mid = await pool.getMachine({ region: "mad" });
     let machine = await api.getMachine(mid);
 
     assertNonPooled(machine);

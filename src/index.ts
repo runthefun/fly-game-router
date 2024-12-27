@@ -195,6 +195,26 @@ app.get("/room-stats/:mid", async (req, res) => {
   res.json(data);
 });
 
+app.get("/pool-status", async (req, res) => {
+  //
+  try {
+    //
+    const { free, total } = await roomManager.pool.getPoolSize();
+
+    return res.json({
+      success: true,
+      free,
+      total,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: e.message || "Internal Server Error",
+    });
+  }
+});
+
 const server = app.listen(port, () => {
   console.log(`🕸️ listening on port http://localhost:${port}`);
 });
