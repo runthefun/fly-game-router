@@ -56,7 +56,7 @@ const roomManager = new RoomManager({
   }),
 });
 
-// roomManager.pool.start();
+roomManager.pool.start();
 
 app.post("/join", async (req, res) => {
   //
@@ -154,7 +154,7 @@ app.post("/config-pool", basicAuthMiddleware, async (req, res) => {
   }
 });
 
-app.get("/rooms", async (req, res) => {
+app.get("/rooms", basicAuthMiddleware, async (req, res) => {
   //
   try {
     //
@@ -173,7 +173,7 @@ app.get("/rooms", async (req, res) => {
   }
 });
 
-app.get("/room-stats/:mid", async (req, res) => {
+app.get("/room-stats/:mid", basicAuthMiddleware, async (req, res) => {
   //
   const mid = req.params.mid;
 
@@ -195,7 +195,7 @@ app.get("/room-stats/:mid", async (req, res) => {
   res.json(data);
 });
 
-app.get("/pool-status", async (req, res) => {
+app.get("/pool-status", basicAuthMiddleware, async (req, res) => {
   //
   try {
     //

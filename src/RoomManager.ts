@@ -86,19 +86,22 @@ export class RoomManager {
     //
     const machines = await this.pool._api.getMachines();
 
-    return machines
-      .filter((m) => m.state === "started" && !this.pool.isClaimed(m.id))
-      .map((m) => {
-        //
-        return {
-          id: m.id,
-          state: m.state,
-          region: m.region,
-          cpu_kind: m.config.guest.cpu_kind,
-          cpus: m.config.guest.cpus,
-          memory_mb: m.config.guest.memory_mb,
-          roomId: m.config.metadata.roomId,
-        };
-      });
+    return (
+      machines
+        // .filter((m) => m.state === "started" && !this.pool.isClaimed(m.id))
+        .map((m) => {
+          //
+          return {
+            id: m.id,
+            state: m.state,
+            region: m.region,
+            cpu_kind: m.config.guest.cpu_kind,
+            cpus: m.config.guest.cpus,
+            memory_mb: m.config.guest.memory_mb,
+            roomId: m.state === "started" ? m.config.metadata.roomId : "",
+            pooled: this.pool.isPooled(m),
+          };
+        })
+    );
   }
 }
