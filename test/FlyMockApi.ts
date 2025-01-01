@@ -286,7 +286,7 @@ export class FlyMockApi extends FlyApi {
 
     if (this._maxFailureCount && this._failureCount < this._maxFailureCount) {
       this._failureCount++;
-      throw new Error("Network error");
+      throw new Error("Mock Network error", { cause: "api-mock" });
     }
 
     await this.provisionMachineDelay();

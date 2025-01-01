@@ -1,6 +1,9 @@
 // import { Db } from "./db";
+import { DbService } from "./db";
+import { ENV } from "./env";
 import type { FlyApi } from "./FlyApi";
-import { CreateMachineOpts, Machine } from "./types";
+import { CreateMachineOpts, Machine, MachineConfig } from "./types";
+import { delay, mergeConfigs } from "./utils";
 
 interface Claim {
   uid: string;
@@ -18,6 +21,7 @@ interface GetMachineOpts {
   tag?: string;
   region?: string;
   ip?: string;
+  config?: Partial<MachineConfig>;
   skipStart?: boolean;
 }
 
@@ -165,7 +169,7 @@ export class MachinesPool {
         console.error("Error scaling", e);
       }
 
-      await new Promise((r) => setTimeout(r, this._pollInterval));
+      await delay(this._pollInterval);
     }
   }
 
@@ -279,6 +283,7 @@ export class MachinesPool {
       pooled: false,
       poolSize: 0,
       freeSize: 0,
+      config: opts?.config,
     };
 
     if (opts?.region) {
@@ -302,12 +307,17 @@ export class MachinesPool {
       //   freeMachines.length
       // );
 
-      // if region is specified, try to get a machine in that region
-      let machine = opts?.region
-        ? freeMachines.find((m) => m.region === opts.region)
-        : freeMachines[0];
+      let machine: Machine;
 
-      machine ??= freeMachines[0];
+      // When asking for a specific config, we always create a non pooled machine
+      if (!opts?.config) {
+        //
+        if (opts?.region) {
+          machine = freeMachines.find((m) => m.region === opts.region);
+        }
+
+        machine ??= freeMachines[0];
+      }
 
       if (machine) {
         //
@@ -372,10 +382,7 @@ export class MachinesPool {
     //
     return this._createMachineWithRetry(
       (m) => ({
-        config: {
-          ...m.config,
-          auto_destroy: true,
-        },
+        config: mergeConfigs(m.config, { auto_destroy: true }, opts?.config),
         region: opts?.region || m.region,
         skip_launch: opts?.skipStart,
       }),
@@ -387,13 +394,11 @@ export class MachinesPool {
     //
     const machine = await this._createMachineWithRetry(
       (m) => ({
-        config: {
-          ...m.config,
+        config: mergeConfigs(m.config, {
           metadata: {
-            ...m.config.metadata,
             pooled: "true",
           },
-        },
+        }),
         skip_launch: true,
         region: opts?.region || m.region,
       }),
@@ -430,8 +435,10 @@ export class MachinesPool {
         );
         return m;
       } catch (e) {
-        // console.error("Error creating machine", e);
-        await new Promise((r) => setTimeout(r, 500));
+        if (e.cause !== "api-mock") {
+          console.error("Error creating machine", e);
+        }
+        await delay(500);
       }
     }
 
@@ -463,6 +470,7 @@ interface PoolEvent {
   pooled: boolean;
   poolSize: number;
   freeSize: number;
+  config?: Partial<MachineConfig>;
 }
 
 class EventLogger {
@@ -473,42 +481,12 @@ class EventLogger {
     this.init();
   }
 
-  init() {
-    //
-    /*
-    // create table for Events if not exists
-    this._db.exec(`
-        CREATE TABLE IF NOT EXISTS Events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts INTEGER,
-            type TEXT,
-            result TEXT,
-            machineId TEXT,
-            pooled BOOLEAN,
-            poolSize INTEGER,
-            freeSize INTEGER
-        )
-    `);
-    */
-  }
+  init() {}
 
   logEvent(e: PoolEvent) {
     //
-    /*
-    const stmt = this._db.prepare(
-      "INSERT INTO Events (ts, type, result, machineId, pooled, poolSize, freeSize) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    );
-
-    stmt.run(
-      Date.now(),
-      e.type,
-      e.result,
-      e.machineId,
-      String(e.pooled),
-      e.poolSize,
-      e.freeSize
-    );
-    */
-    // console.log(e);
+    // if (ENV.IS_PRODUCTION) {
+    //   dblogEvent(e);
+    // }
   }
 }

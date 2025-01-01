@@ -2,6 +2,8 @@ import assert from "assert";
 import { FlyMockApi } from "./FlyMockApi";
 import { RoomManager } from "../src/RoomManager";
 import { defaultConfig } from "../src/machine.config";
+import { DbService } from "../src/db";
+import { ServerSpecs } from "../src/schemas";
 
 let srcAppApi: FlyMockApi;
 let api: FlyMockApi;
@@ -13,6 +15,8 @@ const POLL_INTERVAL = 100;
 describe("RoomManager tests", () => {
   //
   let roomManager: RoomManager;
+
+  let mockSpecs: Record<string, ServerSpecs> = {};
 
   before(async () => {
     //
@@ -30,6 +34,13 @@ describe("RoomManager tests", () => {
         region: "lhr",
       })
     );
+
+    DbService.getGameMetadata = async (gameId: string) => {
+      return {
+        id: gameId,
+        serverSpecs: mockSpecs[gameId],
+      };
+    };
   });
 
   beforeEach(() => {
@@ -165,5 +176,84 @@ describe("RoomManager tests", () => {
     let mid3 = await req3;
 
     assert.equal(mid1, mid3, "Machine should be reused");
+  });
+
+  it("should create a machine conform to room specs", async () => {
+    //
+    let roomId = "room-" + Math.random().toString(36).substr(2, 5);
+
+    let specs: ServerSpecs = {
+      guest: {
+        cpu_kind: "performance",
+        cpus: 2,
+        memory_mb: 2048,
+      },
+      idleTimeout: 600,
+    };
+
+    mockSpecs[roomId] = specs;
+
+    await roomManager.pool.scale();
+
+    let mid = await roomManager.getOrCreateMachineForRoom({
+      roomId,
+      region: "mad",
+      specs: true,
+    });
+
+    const machine = await api.getMachine(mid);
+
+    assert.equal(machine?.state, "started", "Machine should be started");
+    assert.equal(machine.config.guest.cpu_kind, specs.guest.cpu_kind);
+    assert.equal(machine.config.guest.cpus, specs.guest.cpus);
+    assert.equal(machine.config.guest.memory_mb, specs.guest.memory_mb);
+    assert.equal(machine.config.metadata.roomId, roomId);
+    assert.equal(machine.config.env.ROOM_IDLE_TIMEOUT_SEC, specs.idleTimeout);
+  });
+
+  it("should reuse an existing machine even if room specs are provided", async () => {
+    //
+    let roomId = "room-" + Math.random().toString(36).substr(2, 5);
+
+    let specs: ServerSpecs = {
+      guest: {
+        cpu_kind: "performance",
+        cpus: 2,
+        memory_mb: 2048,
+      },
+      idleTimeout: 600,
+    };
+
+    mockSpecs[roomId] = specs;
+
+    await roomManager.pool.scale();
+
+    let mid1 = await roomManager.getOrCreateMachineForRoom({
+      roomId,
+      region: "mad",
+      specs: true,
+    });
+
+    // change the specs in meantime
+    mockSpecs[roomId] = {
+      guest: {
+        cpu_kind: "shared",
+        cpus: 1,
+        memory_mb: 1024,
+      },
+      idleTimeout: 300,
+    };
+
+    let mid2 = await roomManager.getOrCreateMachineForRoom({
+      roomId,
+      region: "mad",
+      specs: true,
+    });
+
+    assert.equal(mid1, mid2, "Machine should be reused");
+
+    const machine = await api.getMachine(mid1);
+    assert.equal(machine?.state, "started", "Machine should be started");
+    assert.equal(machine.config.guest.cpu_kind, specs.guest.cpu_kind);
   });
 });
