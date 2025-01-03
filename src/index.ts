@@ -56,7 +56,7 @@ const roomManager = new RoomManager({
   }),
 });
 
-roomManager.pool.start();
+// roomManager.pool.start();
 
 app.post("/join", async (req, res) => {
   //
