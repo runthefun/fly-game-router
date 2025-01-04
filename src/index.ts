@@ -60,7 +60,7 @@ const roomManager = new RoomManager({
 });
 
 if (process.env.NODE_ENV === "production" && ENV.CURRENT_APP) {
-  roomManager.pool.start();
+  // roomManager.pool.start();
 }
 
 app.post("/join", async (req, res) => {
