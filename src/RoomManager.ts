@@ -1,5 +1,14 @@
-import { ENV } from "./env";
+import { DbService } from "./db";
 import { MachinesPool, PoolOpts } from "./MachinesPool";
+import { ServerSpecs, serverSpecsSchema } from "./schemas";
+import { MachineConfig } from "./types";
+
+export interface GetRoomMachineOpts {
+  roomId: string;
+  region?: string;
+  ip?: string;
+  specs?: boolean;
+}
 
 export class RoomManager {
   //
@@ -12,11 +21,7 @@ export class RoomManager {
 
   joinReqs = new Map<string, Promise<string>>();
 
-  async getOrCreateMachineForRoom(opts: {
-    roomId: string;
-    region?: string;
-    ip?: string;
-  }) {
+  async getOrCreateMachineForRoom(opts: GetRoomMachineOpts) {
     //
     let roomId = opts.roomId;
 
@@ -37,11 +42,7 @@ export class RoomManager {
     return req;
   }
 
-  async _getOrCreateMachineMutex(opts: {
-    roomId: string;
-    region?: string;
-    ip?: string;
-  }) {
+  async _getOrCreateMachineMutex(opts: GetRoomMachineOpts) {
     //
     const { roomId, region } = opts;
 
@@ -51,8 +52,14 @@ export class RoomManager {
       return machineId;
     }
 
+    let config: Partial<MachineConfig> = null;
+
+    if (opts.specs) {
+      config = await this.getMachineConfig(roomId);
+    }
+
     // Not found, get a new machine from the pool
-    let mid = await this.pool.getMachine({ region });
+    let mid = await this.pool.getMachine({ region, config });
 
     if (mid == null) {
       throw new Error("Failed to get machine from pool for room " + roomId);
@@ -103,5 +110,44 @@ export class RoomManager {
           };
         })
     );
+  }
+
+  async getMachineConfig(roomId: string) {
+    //
+
+    let config: Partial<MachineConfig> = null;
+    let serverSpecs: ServerSpecs;
+    let gameMeta;
+
+    try {
+      //
+      gameMeta = await DbService.getGameMetadata(roomId);
+    } catch (e) {
+      console.error("Failed to get game meta for " + roomId, e);
+    }
+
+    if (gameMeta?.serverSpecs) {
+      //
+      try {
+        serverSpecs = serverSpecsSchema.parse(gameMeta.serverSpecs);
+      } catch (e) {
+        console.error("Invalid server specs for " + roomId, e);
+      }
+    }
+
+    if (serverSpecs) {
+      config = {
+        env: {
+          ROOM_IDLE_TIMEOUT_SEC: serverSpecs.idleTimeout,
+        },
+        guest: {
+          cpu_kind: serverSpecs.guest.cpu_kind,
+          cpus: serverSpecs.guest.cpus,
+          memory_mb: serverSpecs.guest.memory_mb,
+        },
+      };
+    }
+
+    return config;
   }
 }

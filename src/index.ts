@@ -6,7 +6,9 @@ import { JoinReqBody } from "./types";
 import { RoomManager } from "./RoomManager";
 import { FlyApi } from "./FlyApi";
 import { ENV } from "./env";
+import { joinReqBodySchema } from "./schemas";
 
+//#region middleware
 const corsOptions = {
   origin: "*",
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
@@ -31,11 +33,6 @@ app.options("*", cors(corsOptions));
 
 app.use(express.json());
 
-app.get("/", (req, res) => {
-  //
-  res.send(`🥸🥸🥸🥸🥸🥸🥸`);
-});
-
 // Ensure all responses include CORS headers
 app.use((req, res, next) => {
   res.set("Access-Control-Allow-Origin", "*");
@@ -43,6 +40,12 @@ app.use((req, res, next) => {
   res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.set("Access-Control-Allow-Credentials", "true");
   next();
+});
+//#endregion
+
+app.get("/", (req, res) => {
+  //
+  res.send(`🥸🥸🥸🥸🥸🥸🥸`);
 });
 
 const roomManager = new RoomManager({
@@ -56,25 +59,17 @@ const roomManager = new RoomManager({
   }),
 });
 
-// roomManager.pool.start();
+if (process.env.NODE_ENV === "production" && ENV.CURRENT_APP) {
+  // roomManager.pool.start();
+}
 
 app.post("/join", async (req, res) => {
   //
   try {
     //
-    const body = req.body as JoinReqBody;
+    const body = joinReqBodySchema.parse(req.body);
 
-    console.log("Join request", body);
-
-    if (!body?.gameId || !body?.userId) {
-      //
-      return res.status(400).json({
-        success: false,
-        message: "Invalid request",
-      });
-    }
-
-    const { gameId } = body;
+    const { gameId, specs } = body;
 
     const region = req.get("Fly-Region");
     const ip = req.get("Fly-Client-IP");
@@ -86,6 +81,7 @@ app.post("/join", async (req, res) => {
       roomId: gameId,
       region,
       ip,
+      specs,
     });
     console.log("Got machine ", machineId, "in", Date.now() - st, "ms");
 
@@ -216,7 +212,8 @@ app.get("/pool-status", basicAuthMiddleware, async (req, res) => {
 });
 
 const server = app.listen(port, () => {
-  console.log(`🕸️ listening on port http://localhost:${port}`);
+  console.log(`🕸️  NODE_ENV: ${process.env.NODE_ENV}`);
+  console.log(`🕸️  Listening on port http://localhost:${port}`);
 });
 
 server.on("upgrade", async (req, socket, head) => {

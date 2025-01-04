@@ -13,6 +13,8 @@ const POLL_INTERVAL = 100;
 
 let pool: MachinesPool;
 
+console.log("NODE_ENV", process.env.NODE_ENV);
+
 describe("MachinesPool tests", () => {
   //
 
@@ -114,6 +116,37 @@ describe("MachinesPool tests", () => {
 
     await api.stopMachine(machine.id);
     // await api.waitMachine(machine.id, { state: "stopped" });
+  });
+
+  it("should get non pooled machines if pool if a config is speciefied", async () => {
+    //
+    await pool.scale();
+
+    // fill the pool
+    await startMachines(pool._minSize);
+
+    const config = {
+      guest: { cpu_kind: "performance", cpus: 4, memory_mb: 2048 },
+      env: { timeout: Date.now() + 1000, tag: "t1" },
+      metadata: { ref: "mref" },
+    };
+
+    // get a machine
+    let mid = await pool.getMachine({
+      config,
+    });
+
+    let machine = await api.getMachine(mid);
+    assertNonPooled(machine);
+
+    assert.equal(machine.config.guest.cpu_kind, "performance");
+    assert.equal(machine.config.guest.cpus, 4);
+    assert.equal(machine.config.guest.memory_mb, 2048);
+    assert.equal(machine.config.metadata.ref, "mref");
+    assert.equal(machine.config.env.timeout, config.env.timeout);
+    assert.equal(machine.config.env.tag, config.env.tag);
+
+    await api.stopMachine(mid);
   });
 
   //
