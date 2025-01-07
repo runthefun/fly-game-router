@@ -201,6 +201,59 @@ app.get("/pool-status", basicAuthMiddleware, async (req, res) => {
       success: true,
       free,
       total,
+      active: roomManager.pool.active,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: e.message || "Internal Server Error",
+    });
+  }
+});
+
+app.post("/pool/start", basicAuthMiddleware, async (req, res) => {
+  //
+  try {
+    //
+    if (roomManager.pool.active) {
+      return res.json({
+        success: true,
+        message: "Pool already started",
+      });
+    }
+
+    roomManager.pool.start();
+
+    return res.json({
+      success: true,
+      message: "Pool started",
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: e.message || "Internal Server Error",
+    });
+  }
+});
+
+app.post("/pool/stop", basicAuthMiddleware, async (req, res) => {
+  //
+  try {
+    //
+    if (!roomManager.pool.active) {
+      return res.json({
+        success: true,
+        message: "Pool already stopped",
+      });
+    }
+
+    roomManager.pool.stop();
+
+    return res.json({
+      success: true,
+      message: "Pool stopped",
     });
   } catch (e) {
     console.error(e);
