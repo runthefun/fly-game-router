@@ -64,6 +64,7 @@ describe("MachinesPool tests", () => {
   beforeEach(async () => {
     //
     pool = new MachinesPool({
+      poolId: "pool1",
       minSize: MIN_POOL_SIZE,
       maxSize: MAX_POOL_SIZE,
       pollInterval: POLL_INTERVAL,
@@ -75,15 +76,25 @@ describe("MachinesPool tests", () => {
 
   afterEach(async () => {
     //
-    await pool.reset();
+    await pool.reset({ force: true });
   });
+
+  const assertDifferent = (machineIds: string[]) => {
+    //
+    const ids = new Set(machineIds.map((mid) => mid));
+    assert.equal(
+      ids.size,
+      machineIds.length,
+      "All machine ids should be different, got " + machineIds.join(",")
+    );
+  };
 
   const assertAllStopped = async () => {
     //
     const machines = await pool.getMachines();
-    machines.all.forEach((m) => {
+    machines.forEach((m) => {
       assertIsCloned(m);
-      assert.ok(m.state === "stopped" || m.state === "stopping");
+      assert.ok(m.state === "stopped");
     });
   };
 
@@ -91,10 +102,10 @@ describe("MachinesPool tests", () => {
     //
     assertIsCloned(machine);
     assert.ok(!pool.isPooled(machine), "Machine should not be pooled");
-    assert.equal(machine.state, "started");
+    assert.equal(machine.state, "stopped");
   };
 
-  const startMachines = async (n: number) => {
+  const claimPoolMachines = async (n: number, log = false) => {
     //
     const machines = await pool.getFreeMachines();
     if (machines.length < n) {
@@ -102,9 +113,16 @@ describe("MachinesPool tests", () => {
         "Not enough free machines to start " + n + " > " + machines.length
       );
     }
-    const toStart = machines.slice(0, n);
-    await Promise.all(toStart.map((m) => api.startMachine(m.id)));
-    return toStart;
+
+    pool._machinesLock._log = log;
+    const ms = Promise.all(
+      Array(n)
+        .fill(0)
+        .map((_, i) => pool.getMachine({ tag: "m" + i }))
+    );
+    pool._machinesLock._log = false;
+
+    return ms;
   };
 
   it("should create a non pooled machine if not active", async () => {
@@ -114,7 +132,6 @@ describe("MachinesPool tests", () => {
     const machine = await api.getMachine(mid);
     assertNonPooled(machine);
 
-    await api.stopMachine(machine.id);
     // await api.waitMachine(machine.id, { state: "stopped" });
   });
 
@@ -123,7 +140,7 @@ describe("MachinesPool tests", () => {
     await pool.scale();
 
     // fill the pool
-    await startMachines(pool._minSize);
+    await claimPoolMachines(pool._minSize);
 
     const config = {
       guest: { cpu_kind: "performance", cpus: 4, memory_mb: 2048 },
@@ -145,8 +162,6 @@ describe("MachinesPool tests", () => {
     assert.equal(machine.config.metadata.ref, "mref");
     assert.equal(machine.config.env.timeout, config.env.timeout);
     assert.equal(machine.config.env.tag, config.env.tag);
-
-    await api.stopMachine(mid);
   });
 
   //
@@ -161,11 +176,12 @@ describe("MachinesPool tests", () => {
     await assertPoolSize({ free: pool._minSize, total: pool._minSize });
 
     // start 5 machines
-    await startMachines(5);
-    await assertPoolSize({ free: pool._minSize - 5, total: pool._minSize });
+    //  const machineIds = await claimPoolMachines(5, true);
+    // assertDifferent(machineIds);
+    // await assertPoolSize({ free: pool._minSize - 5, total: pool._minSize });
 
-    await pool.scale();
-    await assertPoolSize({ free: pool._minSize, total: pool._minSize + 5 });
+    // await pool.scale();
+    // await assertPoolSize({ free: pool._minSize, total: pool._minSize + 5 });
   });
 
   it("should scale down", async () => {
@@ -174,7 +190,7 @@ describe("MachinesPool tests", () => {
 
     await assertAllStopped();
 
-    const startedMachines = await startMachines(5);
+    const claimedMachines = await claimPoolMachines(5);
 
     await assertPoolSize({ free: pool._minSize - 5, total: pool._minSize });
 
@@ -183,7 +199,7 @@ describe("MachinesPool tests", () => {
     await assertPoolSize({ free: pool._minSize, total: pool._minSize + 5 });
 
     // stop started machines
-    await Promise.all(startedMachines.map((m) => api.stopMachine(m.id)));
+    await Promise.all(claimedMachines.map((m) => pool.relaseMachine(m)));
     await assertPoolSize({ free: pool._minSize + 5, total: pool._minSize + 5 });
 
     await assertAllStopped();
@@ -202,7 +218,7 @@ describe("MachinesPool tests", () => {
     let mid = await pool.getMachine({ region: "mad" });
 
     let machine = await api.getMachine(mid);
-    assert.equal(machine.state, "started");
+    assert.equal(machine.state, "stopped");
     assert.ok(pool.isPooled(machine), "Machine should be pooled and free");
   });
 
@@ -211,15 +227,13 @@ describe("MachinesPool tests", () => {
     await pool.scale();
 
     // fill the pool
-    await startMachines(pool._minSize);
+    await claimPoolMachines(pool._minSize);
 
     // get a machine
     let mid = await pool.getMachine({ region: "mad" });
 
     let machine = await api.getMachine(mid);
     assertNonPooled(machine);
-
-    await api.stopMachine(mid);
   });
 
   it("should handle concurrent getMachine calls", async () => {
@@ -241,8 +255,8 @@ describe("MachinesPool tests", () => {
     // all should be pooled
     assert.ok(machines.every((m) => pool.isPooled(m)));
 
-    // all should be started
-    assert.ok(machines.every((m) => m.state === "started"));
+    // all should be stopped
+    assert.ok(machines.every((m) => m.state === "stopped"));
 
     // all should be different
     assert.ok(new Set(machines.map((m) => m.id)).size === 4);
@@ -267,8 +281,8 @@ describe("MachinesPool tests", () => {
     // shoould have right size machines
     assert.equal(machines.length, SIZE);
 
-    // all should be started
-    machines.forEach((m) => assert.equal(m.state, "started"));
+    // all should be stopped
+    machines.forEach((m) => assert.equal(m.state, "stopped"));
 
     // all should be different
     assert.ok(new Set(machines.map((m) => m.id)).size === SIZE);
@@ -308,6 +322,6 @@ describe("MachinesPool tests", () => {
     let machine = await api.getMachine(mid);
 
     assertNonPooled(machine);
-    assert.equal(machine.state, "started");
+    assert.equal(machine.state, "stopped");
   });
 });

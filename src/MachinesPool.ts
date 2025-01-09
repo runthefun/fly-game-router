@@ -1,31 +1,45 @@
 // import { Db } from "./db";
-import { DbService } from "./db";
 import { ENV } from "./env";
 import type { FlyApi } from "./FlyApi";
+import { BackgroundJob } from "./job";
+import { ResourceLock } from "./lock";
 import { CreateMachineOpts, Machine, MachineConfig } from "./types";
 import { delay, mergeConfigs } from "./utils";
-
-interface Claim {
-  uid: string;
-  mid: string;
-  ts: number;
-}
 
 const DEFAULTS = {
   minSize: 10,
   maxSize: 100,
   pollInterval: 5 * 60 * 1000,
+  machineIdleTimeout: 30 * 60 * 1000,
 };
 
 interface GetMachineOpts {
   tag?: string;
   region?: string;
   ip?: string;
+  idleTimeout?: number;
   config?: Partial<MachineConfig>;
-  skipStart?: boolean;
+}
+
+export interface PooledMachineMetadata {
+  claimed?: boolean;
+  // user defined tag (eg roomId)
+  tag: string;
+  // requester's ip (typicall first player's ip)
+  reqIp: string;
+
+  // Below fields are used to know when we should destroy the machine
+  // if it's been stopped for more than idleTimeout
+  lastInactive: number;
+  idleTimeout: number;
+}
+
+export interface PoolMachine extends Machine {
+  poolMetadata: PooledMachineMetadata;
 }
 
 export interface PoolOpts {
+  poolId?: string;
   minSize?: number;
   maxSize?: number;
   pollInterval?: number;
@@ -34,13 +48,32 @@ export interface PoolOpts {
   api?: FlyApi;
 }
 
+/**
+ * A class to manage a pool of machines;
+ * the Pool strives to always have a number of stopped machines ready to start.
+ * (starting a stopped in fly.io is always much faster than creating a new machine)
+ *
+ * The pool can be configured to have a min and max size, and will scale up and down
+ * to keep always minSize machines stopped.
+ * The pool will stop scaling up when it reaches maxSize.
+ * The pool will also stop scaling down when it reaches minSize.
+ *
+ */
 export class MachinesPool {
   //
   _eventLogger = new EventLogger();
-  _machines: Machine[] = [];
+  _machines: Map<string, PoolMachine> = new Map();
+  _freeSize: number = 0;
+  _poolSize: number = 0;
+
+  _machinesLock = new ResourceLock();
+  _job: BackgroundJob;
+
+  _scaleErrorCounnt = 0;
 
   _active: boolean = false;
 
+  _poolId: string;
   _templateApp: string;
   _templateMachineId: string;
 
@@ -55,71 +88,82 @@ export class MachinesPool {
 
   constructor(opts?: PoolOpts) {
     //
+    this._poolId = opts?.poolId ?? ENV.FLY_MACHINE_ID;
+
     this._minSize = opts?.minSize || DEFAULTS.minSize;
     this._maxSize = opts?.maxSize || DEFAULTS.maxSize;
-    this._pollInterval = opts?.pollInterval || DEFAULTS.pollInterval;
+
+    this._job = new BackgroundJob({
+      id: "pool-" + this._poolId,
+      task: () => this.scale(),
+      pollInterval: opts.pollInterval || DEFAULTS.pollInterval,
+    });
 
     this._templateApp = opts?.templateApp;
     this._templateMachineId = opts?.templateMachineId;
     this._api = opts?.api;
   }
 
-  /*
-    since api is async, it's possible that we'd get concurrent
-    requests trying to start the same machine. So we put a lock
-    to ensure that only one request is starting the machine
-    
-    To avoid subtle bugs, we follow the below rules:
+  private _curRefresh: Promise<unknown> = null;
 
-      1. A machine can be claimed if it's in the server free list
-         and not in the local claimed list
-      2. Once a machine is claimed, it'll be started immediately
-      3. Once machine start has been confirmed, IT'S IMPORTANT TO
-         NOT REMOVE IT RIGHT AWAY. This is because inflight requests
-         might still see a stale state (eg stopped) from the server
-      4. Instead, we wait some minimal time (eg 1s) before removing to 
-         let inflight requests settle first and see the claimed state
-
-    */
-  _claims: Record<string, Claim> = {};
-
-  _claimMachine(mid: string) {
+  refresh() {
     //
-    if (this._claims[mid]) {
-      throw new Error(`Machine ${mid} already claimed`);
+    if (this._curRefresh == null) {
+      //
+      let curRefresh = this._api
+        .getMachines()
+        .then((machines) => {
+          //
+          let freeSize = 0;
+
+          let poolMachines = machines
+            .filter((m) => this.isPooled(m))
+            .map((m) => {
+              // if the machine is currently being written to locally, return the local version
+              if (this._machinesLock.isLocked(m.id)) {
+                return this._machines.get(m.id);
+              }
+
+              let metadata: PooledMachineMetadata = JSON.parse(
+                m.config.metadata[this._poolKey]
+              );
+
+              if (!metadata.claimed) {
+                freeSize++;
+              }
+
+              return { ...m, poolMetadata: metadata };
+            });
+
+          this._poolSize = poolMachines.length;
+          this._freeSize = freeSize;
+
+          this._machines = new Map(poolMachines.map((m) => [m.id, m]));
+        })
+        .finally(() => {
+          this._curRefresh = null;
+        });
+
+      this._curRefresh = curRefresh;
     }
 
-    let uid = Math.random().toString(36).substring(7);
-
-    let claim = (this._claims[mid] = { uid, mid, ts: Date.now() });
-
-    return claim;
+    return this._curRefresh;
   }
 
-  _removeClaim(c: Claim) {
+  private _syncMachineState(m: PoolMachine) {
     //
-    let cur = this._claims[c.mid];
+    const json = JSON.stringify(m.poolMetadata);
 
-    if (cur == null) {
-      throw new Error(`Machine ${c.mid} not claimed`);
-    }
+    m.config.metadata[this._poolKey] = json;
 
-    if (c.uid !== cur.uid) {
-      throw new Error(`Claim ${c.uid} does not match ${cur.uid}`);
-    }
-
-    delete this._claims[c.mid];
-  }
-
-  isClaimed(mid: string) {
-    //
-    return this._claims[mid] != null;
+    return this._api.updateMachineMetadata(m.id, this._poolKey, json);
   }
 
   config(
     opts: {
       minSize?: number;
       maxSize?: number;
+      pollInterval?: number;
       sourceMachineId?: string;
     } = {}
   ) {
@@ -127,131 +171,180 @@ export class MachinesPool {
     if (opts.minSize) this._minSize = opts.minSize;
     if (opts.maxSize) this._maxSize = opts.maxSize;
     if (opts.sourceMachineId) this._templateMachineId = opts.sourceMachineId;
+
+    if (opts.pollInterval) {
+      this._job.pollInterval = opts.pollInterval;
+    }
   }
 
-  async reset() {
+  async reset(opts?: { force?: boolean }) {
     //
     if (this._active) this.stop();
     const res = await this.getMachines();
     await Promise.all(
-      res.all.map((m) => this._api.deleteMachine(m.id, { force: true }))
+      res
+        .filter((m) => opts?.force || this.isFree(m))
+        .map((m) => this._api.deleteMachine(m.id, { force: true }))
     );
-    this._machines = [];
-  }
-
-  async refresh() {
-    //
-    this._machines = await this._api.getMachines();
+    this._machines = new Map();
   }
 
   get active() {
-    return this._active;
+    return this._job.active;
   }
 
   start() {
-    //
-    if (this._active) {
-      console.warn("Already started");
-      return;
-    }
-
-    this._active = true;
-
-    this._startScaleLoop();
-  }
-
-  private async _startScaleLoop() {
-    //
-    while (this._active) {
-      try {
-        await this.scale();
-      } catch (e) {
-        console.error("Error scaling", e);
-      }
-
-      await delay(this._pollInterval);
-    }
+    this._job.start();
   }
 
   stop() {
-    //
-    if (!this._active) {
-      console.warn("Already stopped");
-      return;
-    }
-
-    this._active = false;
+    this._job.stop();
   }
-
-  private _isScaling = false;
 
   async scale() {
     //
-    if (this._isScaling) {
-      console.warn("Already scaling");
-      return;
-    }
-
     try {
       await this.refresh();
 
       let minSize = this._minSize;
       let maxSize = this._maxSize;
 
-      const all = this._machines.filter((m) => this.isPooled(m));
+      let machines = Array.from(this._machines.values());
+
+      const all = machines.filter((m) => this.isPooled(m));
 
       const available = all.filter((m) => this.isFree(m));
+
+      // console.log(
+      //   "scaling",
+      //   minSize,
+      //   maxSize,
+      //   "overall",
+      //   machines.length,
+      //   "all",
+      //   all.length,
+      //   "free",
+      //   available.length
+      // );
 
       const diff = Math.min(minSize - available.length, maxSize - all.length);
 
       if (diff > 0) {
+        // console.log("scaling up", diff);
         await Promise.all(
           Array.from({ length: diff }).map(async () => {
-            await this._createPooledMachine().catch((e) => {
-              //
+            try {
+              await this._createPooledMachine();
+            } catch (e) {
               console.error("Failed to create machine", e);
-            });
+            }
           })
         );
       } else if (diff < 0) {
+        //
+        // console.log("scaling down", Math.abs(diff));
         const toDelete = Math.abs(diff);
+
+        let machinesToDelete = available.slice(0, toDelete);
+
         await Promise.all(
-          available.slice(0, toDelete).map(async (m) => {
-            await this._api.deleteMachine(m.id, { force: true }).catch((e) => {
+          machinesToDelete.map(async (machine) => {
+            //
+            try {
+              await this._deleteMachine(machine);
+            } catch (e) {
               //
               console.error("Failed to delete machine", e);
-            });
+            }
           })
         );
       }
-    } finally {
-      this._isScaling = false;
+    } catch (e) {
+      //
+      console.error("Error scaling", e);
+
+      this._scaleErrorCounnt++;
+
+      // if too much consecutive errors, stop the pool
+      if (this._scaleErrorCounnt > 100) {
+        this.stop();
+      }
+      // force a refresh to make sure we're in a consistent state
+      this.refresh();
     }
+  }
+
+  private get _poolKey() {
+    //
+    return `pool:${this._poolId}`;
+  }
+
+  private _deleteMachine(m: PoolMachine) {
+    //
+    return this._machinesLock.tryWithLock(
+      m.id,
+      async () => {
+        //
+        await this._api.deleteMachine(m.id, { force: true });
+        this._machines.delete(m.id);
+      },
+      0
+    );
+  }
+
+  private _updateMachineState(
+    m: PoolMachine,
+    state: Partial<PooledMachineMetadata>
+  ) {
+    //
+
+    return this._machinesLock.tryWithLock(
+      m.id,
+      async () => {
+        //
+        Object.assign(m.poolMetadata, state);
+        await this._syncMachineState(m);
+      },
+      0
+    );
+  }
+
+  private _createMachinePoolMetadata(
+    opts: GetMachineOpts,
+    claimed: boolean
+  ): PooledMachineMetadata {
+    //
+    return {
+      claimed,
+      tag: opts?.tag ?? "",
+      reqIp: opts?.ip ?? "",
+      lastInactive: Date.now(),
+      idleTimeout: opts?.idleTimeout ?? DEFAULTS.machineIdleTimeout,
+    };
+  }
+
+  getMachinePoolMetadata(m: Machine): PooledMachineMetadata {
+    return this.isPooled(m)
+      ? JSON.parse(m.config.metadata[this._poolKey])
+      : null;
   }
 
   isPooled(machine: Machine): boolean {
     //
-    return machine.config.metadata?.pooled === "true";
+    return machine.config.metadata[this._poolKey] != null;
   }
 
-  isFree(m: Machine): boolean {
+  isFree(m: PoolMachine): boolean {
     //
-    return (
-      this.isPooled(m) &&
-      (m.state === "created" ||
-        m.state === "stopping" ||
-        m.state === "stopped" ||
-        m.state === "suspending" ||
-        m.state === "suspended") &&
-      !this._claims[m.id]
-    );
+    return !this._machinesLock.isLocked(m.id) && !m.poolMetadata.claimed;
   }
 
   async getPoolSize() {
     //
     await this.refresh();
-    const free = this._machines.filter((m) => this.isFree(m)).length;
-    const total = this._machines.filter((m) => this.isPooled(m)).length;
+    const machines = Array.from(this._machines.values());
+    const free = machines.filter((m) => this.isFree(m)).length;
+    const total = machines.filter((m) => this.isPooled(m)).length;
 
     return { free, total };
   }
@@ -259,17 +352,15 @@ export class MachinesPool {
   async getFreeMachines() {
     //
     await this.refresh();
-    return this._machines.filter((m) => this.isFree(m));
+    const machines = Array.from(this._machines.values());
+    return machines.filter((m) => this.isFree(m));
   }
 
   async getMachines() {
     //
     await this.refresh();
 
-    const all = this._machines.filter((m) => this.isPooled(m));
-    const free = all.filter((m) => this.isFree(m));
-
-    return { all, free };
+    return Array.from(this._machines.values());
   }
 
   async getMachine(opts?: GetMachineOpts): Promise<string> {
@@ -280,7 +371,7 @@ export class MachinesPool {
       ip: opts?.ip ?? "",
       result: "failure",
       machineId: null,
-      pooled: false,
+      poolId: null,
       poolSize: 0,
       freeSize: 0,
       config: opts?.config,
@@ -294,9 +385,14 @@ export class MachinesPool {
 
     try {
       const pooledMachines = await this.getMachines();
-      const freeMachines = pooledMachines.free;
+      const freeMachines = pooledMachines.filter((m) => this.isFree(m));
 
-      event.poolSize = pooledMachines.all.length;
+      const m = freeMachines.find((m) => this._machinesLock.isLocked(m.id));
+      if (m) {
+        console.log("[SSSSSSSSSS] machine is locked", m.id);
+      }
+
+      event.poolSize = pooledMachines.length;
       event.freeSize = freeMachines.length;
 
       // console.log(
@@ -307,7 +403,7 @@ export class MachinesPool {
       //   freeMachines.length
       // );
 
-      let machine: Machine;
+      let machine: PoolMachine = null;
 
       // When asking for a specific config, we always create a non pooled machine
       if (!opts?.config) {
@@ -323,26 +419,38 @@ export class MachinesPool {
         //
         // console.log("[POOL] getMachine", "found free machine", machine.id);
 
-        let claim = this._claimMachine(machine.id);
-
         try {
-          //
-          if (!opts?.skipStart) {
-            await this._startMachine(machine);
+          let res = this._updateMachineState(machine, {
+            claimed: true,
+            tag: opts?.tag || "",
+            reqIp: opts?.ip || "",
+            idleTimeout: opts?.idleTimeout || DEFAULTS.machineIdleTimeout,
+            lastInactive: Date.now(),
+          });
+
+          if (!res) {
+            throw new Error("Failed to claim machine");
           }
+
+          await res;
 
           event.result = "success";
           event.machineId = machine.id;
-          event.pooled = true;
+          event.poolId = this._poolId;
 
           return machine.id;
+        } catch (e) {
           //
-        } finally {
-          if (claim) {
-            setTimeout(() => {
-              this._removeClaim(claim);
-            }, 1000);
-          }
+          // restore the machine state
+          this._updateMachineState(machine, {
+            claimed: false,
+            tag: "",
+            reqIp: "",
+            idleTimeout: DEFAULTS.machineIdleTimeout,
+            lastInactive: Date.now(),
+          });
+
+          machine = null;
         }
       }
 
@@ -352,25 +460,15 @@ export class MachinesPool {
         //   "No free machine in pool, creating new machine"
         // );
 
-        let claim: Claim;
-        try {
-          //
-          machine = await this._createNonPooledMachine(opts);
-          claim = this._claimMachine(machine.id);
+        const npMachine = await this._createNonPooledMachine(opts);
+        // console.log("[POOL] getMachine", "created new machine", npMachine?.id);
 
-          event.result = "success";
-          event.machineId = machine.id;
-          event.pooled = false;
+        event.result = "success";
+        event.machineId = npMachine.id;
+        event.poolId = null;
 
-          //
-          return machine.id;
-        } finally {
-          if (claim) {
-            setTimeout(() => {
-              this._removeClaim(claim);
-            }, 1000);
-          }
-        }
+        //
+        return npMachine.id;
       }
     } finally {
       //
@@ -378,32 +476,60 @@ export class MachinesPool {
     }
   }
 
+  async relaseMachine(machineId: string) {
+    //
+    await this.refresh();
+
+    const machine = this._machines.get(machineId);
+
+    if (machine == null) {
+      throw new Error("Machine not found");
+    }
+
+    if (!this.isPooled(machine)) {
+      throw new Error("Machine not pooled");
+    }
+
+    await this._updateMachineState(machine, {
+      claimed: false,
+      tag: "",
+      reqIp: "",
+      idleTimeout: DEFAULTS.machineIdleTimeout,
+      lastInactive: Date.now(),
+    });
+
+    this._eventLogger.logEvent({
+      type: "machine-release",
+      result: "success",
+      machineId,
+      poolId: this._poolId,
+      poolSize: this._poolSize,
+      freeSize: this._freeSize,
+    });
+  }
+
   private async _createNonPooledMachine(opts?: GetMachineOpts) {
     //
-    return this._createMachineWithRetry(
-      (m) => ({
-        config: mergeConfigs(m.config, { auto_destroy: true }, opts?.config),
-        region: opts?.region || m.region,
-        skip_launch: opts?.skipStart,
-      }),
-      true
-    );
+    return this._createMachineWithRetry((m) => ({
+      config: mergeConfigs(m.config, { auto_destroy: true }, opts?.config),
+      region: opts?.region || m.region,
+      skip_launch: true,
+    }));
   }
 
   private async _createPooledMachine(opts?: GetMachineOpts) {
     //
-    const machine = await this._createMachineWithRetry(
-      (m) => ({
-        config: mergeConfigs(m.config, {
-          metadata: {
-            pooled: "true",
-          },
-        }),
-        skip_launch: true,
-        region: opts?.region || m.region,
+    const machine = await this._createMachineWithRetry((m) => ({
+      config: mergeConfigs(m.config, {
+        metadata: {
+          [this._poolKey]: JSON.stringify(
+            this._createMachinePoolMetadata(opts, false)
+          ),
+        },
       }),
-      false
-    );
+      skip_launch: true,
+      region: opts?.region || m.region,
+    }));
 
     await this._api.waitMachine(machine.id, {
       state: "stopped",
@@ -416,8 +542,7 @@ export class MachinesPool {
   maxCreateRetries = 3;
 
   private async _createMachineWithRetry(
-    onOpts: (data: Machine) => CreateMachineOpts,
-    waitStart: boolean
+    onOpts: (data: Machine) => CreateMachineOpts
   ) {
     //
     if (!this._templateMachineId) {
@@ -430,9 +555,14 @@ export class MachinesPool {
         let m = await this._api.cloneMachine(
           this._templateApp,
           this._templateMachineId,
-          onOpts,
-          waitStart
+          onOpts
         );
+
+        await this._api.waitMachine(m.id, {
+          state: "stopped",
+          instance_id: m.instance_id,
+        });
+
         return m;
       } catch (e) {
         if (e.cause !== "api-mock") {
@@ -445,33 +575,42 @@ export class MachinesPool {
     throw new Error("Failed to create machine");
   }
 
-  private async _startMachine(machine: Machine, tag?: string) {
-    //
-    if (machine.state !== "stopped") {
-      await this._api.waitMachine(machine.id, {
-        state: "stopped",
-        instance_id: machine.instance_id,
-      });
-    }
+  get api() {
+    return this._api;
+  }
 
-    // const logger = tag
-    //   ? (...args: string[]) => this._log(tag, args.join(" "))
-    //   : null;
-    await this._api.startMachine(machine.id, true /* logger */);
+  async getClaimedMachines() {
+    //
+    await this.refresh();
+
+    return Array.from(this._machines.values()).filter(
+      (m) => !this._machinesLock.isLocked(m.id) && m.poolMetadata.claimed
+    );
   }
 }
 
-interface PoolEvent {
+interface RequestPoolEvent {
   type: "machine-request";
   region?: string;
   ip?: string;
   result: "success" | "failure";
   machineId: string;
-  pooled: boolean;
+  poolId: string;
   poolSize: number;
   freeSize: number;
   config?: Partial<MachineConfig>;
 }
+
+interface ReleasePoolEvent {
+  type: "machine-release";
+  result: "success" | "failure";
+  machineId: string;
+  poolId: string;
+  poolSize: number;
+  freeSize: number;
+}
+
+type PoolEvent = RequestPoolEvent | ReleasePoolEvent;
 
 class EventLogger {
   //

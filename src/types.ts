@@ -42,7 +42,7 @@ export interface MachineConfig {
   env: Record<string, any>;
   init: MachineConfigInit;
   guest: MachineGuest;
-  metadata: Record<string, string>;
+  metadata: Record<string, any>;
   services: any[];
   image: string;
   auto_destroy: boolean;

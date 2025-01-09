@@ -15,6 +15,7 @@ export const ENV = {
 
   // injected by Fly
   CURRENT_APP: process.env.FLY_APP_NAME,
+  FLY_MACHINE_ID: process.env.FLY_MACHINE_ID,
 
   IS_PRODUCTION: process.env.NODE_ENV === "production",
 };

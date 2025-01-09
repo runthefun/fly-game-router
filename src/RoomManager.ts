@@ -61,6 +61,8 @@ export class RoomManager {
     // Not found, get a new machine from the pool
     let mid = await this.pool.getMachine({ region, config });
 
+    await this.pool.api.startMachine(mid, true);
+
     if (mid == null) {
       throw new Error("Failed to get machine from pool for room " + roomId);
     }
@@ -77,39 +79,37 @@ export class RoomManager {
       roomId,
     });
 
-    let machine = machines?.find(
-      /*
-        We need the isClaimed check since roomId is not cleaned up when the
-        machine is stopped. So we might end up getting a machine that's in the 
-        process of being prepared by the pool for another room.
-      */
-      (m) => m.state === "started" && !this.pool.isClaimed(m.id)
-    );
+    if (machines.length == 0) {
+      return null;
+    }
 
-    return machine?.id;
+    const machine = machines[0];
+
+    // ensure the machine is running
+    if (machine.state != "started") {
+      await this.pool.api.startMachine(machine.id, true);
+    }
+
+    return machine.id;
   }
 
   async getMachines() {
     //
     const machines = await this.pool._api.getMachines();
 
-    return (
-      machines
-        // .filter((m) => m.state === "started" && !this.pool.isClaimed(m.id))
-        .map((m) => {
-          //
-          return {
-            id: m.id,
-            state: m.state,
-            region: m.region,
-            cpu_kind: m.config.guest.cpu_kind,
-            cpus: m.config.guest.cpus,
-            memory_mb: m.config.guest.memory_mb,
-            roomId: m.state === "started" ? m.config.metadata.roomId : "",
-            pooled: this.pool.isPooled(m),
-          };
-        })
-    );
+    return machines.map((m) => {
+      //
+      return {
+        id: m.id,
+        state: m.state,
+        region: m.region,
+        cpu_kind: m.config.guest.cpu_kind,
+        cpus: m.config.guest.cpus,
+        memory_mb: m.config.guest.memory_mb,
+        roomId: m.config.metadata.roomId,
+        pooled: this.pool.isPooled(m),
+      };
+    });
   }
 
   async getMachineConfig(roomId: string) {
