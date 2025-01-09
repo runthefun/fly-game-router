@@ -3,9 +3,6 @@ import assert from "assert";
 import { FlyMockApi } from "./FlyMockApi";
 import { MachinesPool } from "../src/MachinesPool";
 import { Machine } from "../src/types";
-import { defaultConfig } from "../src/machine.config";
-import { FlyApi } from "../src/FlyApi";
-import { ENV } from "../src/env";
 import { createMockPool } from "./pools";
 
 let pool: MachinesPool;

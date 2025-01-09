@@ -8,6 +8,7 @@
     "build": "npm run clean && tsc",
     "start": "NODE_ENV=production node build/index.js",
     "clean": "rimraf build",
+    "test:fly": "NODE_ENV=test mocha -r tsx test/*.fly.ts  --exit --timeout 15000000",
     "test": "NODE_ENV=test mocha -r tsx test/rooms.test.ts  --exit --timeout 150000",
     "test:repeat": "NODE_ENV=test zsh -c 'for i in {1..10}; do echo \"=== Run $i ===\"; mocha -r tsx test/pool.test.ts --exit --timeout 1500000; done'",
     "test:mockapi": "NODE_ENV=test mocha -r tsx test/api.mock.ts --exit --timeout 15000",

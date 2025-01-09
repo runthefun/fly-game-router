@@ -37,3 +37,21 @@ export function createMockPool() {
     templateMachineId: "mref",
   });
 }
+
+export function createFlyPool() {
+  //
+  const api = new FlyApi({
+    appId: "awe-test-server",
+    apiKey: ENV.FLY_API_KEY!,
+  });
+
+  return new MachinesPool({
+    poolId: "test-pool",
+    minSize: MIN_POOL_SIZE,
+    maxSize: MAX_POOL_SIZE,
+    pollInterval: POLL_INTERVAL,
+    api,
+    templateApp: ENV.TEMPLATE_APP!,
+    templateMachineId: ENV.TEMPLATE_MACHINE!,
+  });
+}
