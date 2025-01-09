@@ -11,7 +11,6 @@ import { MachinesPool, PoolMachine } from "./MachinesPool";
 export class MachinesGC {
   //
   pool: MachinesPool;
-  private _healthCheckUrl: (mid) => string;
   private _job: BackgroundJob;
 
   private _machinesIdleTimes = new Map<string, number>();
@@ -23,7 +22,7 @@ export class MachinesGC {
   }) {
     //
     this.pool = opts.pool;
-    this._healthCheckUrl = opts.healthCheckUrl;
+
     this._job = new BackgroundJob({
       id: "machines-gc",
       task: () => this._process(),
@@ -54,35 +53,37 @@ export class MachinesGC {
     this._job.stop();
   }
 
-  async shouldGarbageCollect(machine: PoolMachine) {
-    // send a health check request to the machine
-    // if the machine is not reachable, then it should be garbage collected
-    const idleTimeout = machine.poolMetadata.idleTimeout;
-    const currentIdleTime = this._machinesIdleTimes.get(machine.id) ?? 0;
-
-    try {
-    } catch (e) {
-      return true;
-    }
-  }
-
-  /**
-   * This method should be called periodically to check the state of the machines
-   * It'll return all pool machines
-   */
-  getMachinesToCollect(machines: PoolMachine[]) {
-    //
-    return machines.filter((machine) => this.shouldGarbageCollect(machine));
-  }
-
   async _process() {
     //
-    const machines = await this.pool.getClaimedMachines();
+    const claimedMachines = await this.pool.getClaimedMachines();
 
-    const machinesToCollect = this.getMachinesToCollect(machines);
+    const stoppedMachines = claimedMachines.filter(
+      (m) => m.state === "stopped"
+    );
 
-    for (const machine of machinesToCollect) {
-      await this.pool.relaseMachine(machine.id);
-    }
+    let machinesToCollect = [];
+
+    let prevTimeouts = this._machinesIdleTimes;
+    this._machinesIdleTimes = new Map<string, number>();
+
+    stoppedMachines.forEach((machine) => {
+      //
+      const idleTimeout = machine.poolMetadata.idleTimeout;
+      let currentIdleTime = prevTimeouts.get(machine.id) ?? 0;
+
+      if (currentIdleTime >= idleTimeout) {
+        machinesToCollect.push(machine);
+      } else {
+        this._machinesIdleTimes.set(
+          machine.id,
+          currentIdleTime + this.pollInterval
+        );
+      }
+    });
+
+    machinesToCollect.forEach((machine) => {
+      //
+      this.pool.releaseMachine(machine.id);
+    });
   }
 }

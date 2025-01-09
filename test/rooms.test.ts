@@ -4,13 +4,7 @@ import { RoomManager } from "../src/RoomManager";
 import { defaultConfig } from "../src/machine.config";
 import { DbService } from "../src/db";
 import { ServerSpecs } from "../src/schemas";
-
-let srcAppApi: FlyMockApi;
-let api: FlyMockApi;
-
-const MIN_POOL_SIZE = 5;
-const MAX_POOL_SIZE = 10;
-const POLL_INTERVAL = 100;
+import { createMockPool } from "./pools";
 
 describe("RoomManager tests", () => {
   //
@@ -18,40 +12,11 @@ describe("RoomManager tests", () => {
 
   let mockSpecs: Record<string, ServerSpecs> = {};
 
-  before(async () => {
-    //
-    FlyMockApi.resetAll();
-    srcAppApi = FlyMockApi.create("srcApp");
-    api = FlyMockApi.create("default");
-
-    srcAppApi._machinesDb.push(
-      srcAppApi._mockCreateMachine({
-        id: "mref",
-        config: {
-          ...defaultConfig,
-          metadata: { ref: "mref" },
-        },
-        region: "lhr",
-      })
-    );
-
-    DbService.getGameMetadata = async (gameId: string) => {
-      return {
-        id: gameId,
-        serverSpecs: mockSpecs[gameId],
-      };
-    };
-  });
-
   beforeEach(() => {
     //
-    roomManager = new RoomManager({
-      minSize: MIN_POOL_SIZE,
-      maxSize: MAX_POOL_SIZE,
-      api,
-      templateApp: "srcApp",
-      templateMachineId: "mref",
-    });
+    let pool = createMockPool();
+
+    roomManager = new RoomManager({ pool });
   });
 
   afterEach(async () => {
@@ -72,7 +37,7 @@ describe("RoomManager tests", () => {
       ip: "12.12.12.12",
     });
 
-    const machine = await api.getMachine(mid);
+    const machine = await roomManager.pool.api.getMachine(mid);
 
     assert.equal(machine?.state, "started", "Machine should be started");
 
@@ -96,7 +61,7 @@ describe("RoomManager tests", () => {
       region: "mad",
     });
 
-    const machine1 = await api.getMachine(mid1);
+    const machine1 = await roomManager.pool.api.getMachine(mid1);
 
     assert.equal(machine1?.state, "started", "Machine1 should be started");
     assert.equal(
@@ -122,8 +87,8 @@ describe("RoomManager tests", () => {
       region: "mad",
     });
 
-    const machine1 = await api.getMachine(mid1);
-    const machine2 = await api.getMachine(mid2);
+    const machine1 = await roomManager.pool.api.getMachine(mid1);
+    const machine2 = await roomManager.pool.api.getMachine(mid2);
 
     assert.equal(machine1?.state, "started", "Machine1 should be started");
     assert.equal(machine2?.state, "started", "Machine2 should be started");
@@ -159,7 +124,7 @@ describe("RoomManager tests", () => {
 
     assert.equal(mid1, mid2, "Machine should be reused");
 
-    const machine = await api.getMachine(mid1);
+    const machine = await roomManager.pool.api.getMachine(mid1);
 
     assert.equal(machine?.state, "started", "Machine1 should be started");
     assert.equal(
@@ -201,7 +166,7 @@ describe("RoomManager tests", () => {
       specs: true,
     });
 
-    const machine = await api.getMachine(mid);
+    const machine = await roomManager.pool.api.getMachine(mid);
 
     assert.equal(machine?.state, "started", "Machine should be started");
     assert.equal(machine.config.guest.cpu_kind, specs.guest.cpu_kind);
@@ -252,7 +217,7 @@ describe("RoomManager tests", () => {
 
     assert.equal(mid1, mid2, "Machine should be reused");
 
-    const machine = await api.getMachine(mid1);
+    const machine = await roomManager.pool.api.getMachine(mid1);
     assert.equal(machine?.state, "started", "Machine should be started");
     assert.equal(machine.config.guest.cpu_kind, specs.guest.cpu_kind);
   });

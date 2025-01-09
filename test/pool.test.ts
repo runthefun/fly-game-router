@@ -1,22 +1,30 @@
+import "dotenv/config";
 import assert from "assert";
 import { FlyMockApi } from "./FlyMockApi";
 import { MachinesPool } from "../src/MachinesPool";
 import { Machine } from "../src/types";
 import { defaultConfig } from "../src/machine.config";
-
-let srcAppApi: FlyMockApi;
-let api: FlyMockApi;
-
-const MIN_POOL_SIZE = 10;
-const MAX_POOL_SIZE = 20;
-const POLL_INTERVAL = 100;
+import { FlyApi } from "../src/FlyApi";
+import { ENV } from "../src/env";
+import { createMockPool } from "./pools";
 
 let pool: MachinesPool;
 
-console.log("NODE_ENV", process.env.NODE_ENV);
-
 describe("MachinesPool tests", () => {
   //
+  before(async () => {
+    //
+  });
+
+  beforeEach(async () => {
+    //
+    pool = createMockPool();
+  });
+
+  afterEach(async () => {
+    //
+    await pool.api.destroyAll();
+  });
 
   const assertPoolSize = async (sizes: { free: number; total: number }) => {
     //
@@ -36,48 +44,8 @@ describe("MachinesPool tests", () => {
 
   const assertIsCloned = (m: Machine) => {
     //
-    assert.equal(
-      m.config.metadata?.ref,
-      "mref",
-      "Machine should be cloned from pool's ref"
-    );
+    assert.equal(m.config.metadata?.ref, pool._templateMachineId);
   };
-
-  before(async () => {
-    //
-    FlyMockApi.resetAll();
-    srcAppApi = FlyMockApi.create("srcApp");
-    api = FlyMockApi.create("default");
-
-    srcAppApi._machinesDb.push(
-      srcAppApi._mockCreateMachine({
-        id: "mref",
-        config: {
-          ...defaultConfig,
-          metadata: { ref: "mref" },
-        },
-        region: "lhr",
-      })
-    );
-  });
-
-  beforeEach(async () => {
-    //
-    pool = new MachinesPool({
-      poolId: "pool1",
-      minSize: MIN_POOL_SIZE,
-      maxSize: MAX_POOL_SIZE,
-      pollInterval: POLL_INTERVAL,
-      api,
-      templateApp: srcAppApi._app,
-      templateMachineId: "mref",
-    });
-  });
-
-  afterEach(async () => {
-    //
-    await pool.reset({ force: true });
-  });
 
   const assertDifferent = (machineIds: string[]) => {
     //
@@ -129,10 +97,10 @@ describe("MachinesPool tests", () => {
     //
     let mid = await pool.getMachine({ region: "mad" });
 
-    const machine = await api.getMachine(mid);
+    const machine = await pool.api.getMachine(mid);
     assertNonPooled(machine);
 
-    // await api.waitMachine(machine.id, { state: "stopped" });
+    // await pool.api.waitMachine(machine.id, { state: "stopped" });
   });
 
   it("should get non pooled machines if pool if a config is speciefied", async () => {
@@ -143,9 +111,9 @@ describe("MachinesPool tests", () => {
     await claimPoolMachines(pool._minSize);
 
     const config = {
-      guest: { cpu_kind: "performance", cpus: 4, memory_mb: 2048 },
-      env: { timeout: Date.now() + 1000, tag: "t1" },
-      metadata: { ref: "mref" },
+      guest: { cpu_kind: "shared", cpus: 4, memory_mb: 1024 },
+      env: { timeout: "" + Date.now() + 1000, tag: "t1" },
+      metadata: { ref: pool._templateMachineId },
     };
 
     // get a machine
@@ -153,13 +121,13 @@ describe("MachinesPool tests", () => {
       config,
     });
 
-    let machine = await api.getMachine(mid);
+    let machine = await pool.api.getMachine(mid);
     assertNonPooled(machine);
 
-    assert.equal(machine.config.guest.cpu_kind, "performance");
-    assert.equal(machine.config.guest.cpus, 4);
-    assert.equal(machine.config.guest.memory_mb, 2048);
-    assert.equal(machine.config.metadata.ref, "mref");
+    assert.equal(machine.config.guest.cpu_kind, config.guest.cpu_kind);
+    assert.equal(machine.config.guest.cpus, config.guest.cpus);
+    assert.equal(machine.config.guest.memory_mb, config.guest.memory_mb);
+    assert.equal(machine.config.metadata.ref, pool._templateMachineId);
     assert.equal(machine.config.env.timeout, config.env.timeout);
     assert.equal(machine.config.env.tag, config.env.tag);
   });
@@ -176,12 +144,12 @@ describe("MachinesPool tests", () => {
     await assertPoolSize({ free: pool._minSize, total: pool._minSize });
 
     // start 5 machines
-    //  const machineIds = await claimPoolMachines(5, true);
-    // assertDifferent(machineIds);
-    // await assertPoolSize({ free: pool._minSize - 5, total: pool._minSize });
+    const machineIds = await claimPoolMachines(5);
+    assertDifferent(machineIds);
+    await assertPoolSize({ free: pool._minSize - 5, total: pool._minSize });
 
-    // await pool.scale();
-    // await assertPoolSize({ free: pool._minSize, total: pool._minSize + 5 });
+    await pool.scale();
+    await assertPoolSize({ free: pool._minSize, total: pool._minSize + 5 });
   });
 
   it("should scale down", async () => {
@@ -199,7 +167,7 @@ describe("MachinesPool tests", () => {
     await assertPoolSize({ free: pool._minSize, total: pool._minSize + 5 });
 
     // stop started machines
-    await Promise.all(claimedMachines.map((m) => pool.relaseMachine(m)));
+    await Promise.all(claimedMachines.map((m) => pool.releaseMachine(m)));
     await assertPoolSize({ free: pool._minSize + 5, total: pool._minSize + 5 });
 
     await assertAllStopped();
@@ -214,10 +182,11 @@ describe("MachinesPool tests", () => {
   it("should get machines from the pool", async () => {
     //
     await pool.scale();
+    await assertAllStopped();
 
     let mid = await pool.getMachine({ region: "mad" });
 
-    let machine = await api.getMachine(mid);
+    let machine = await pool.api.getMachine(mid);
     assert.equal(machine.state, "stopped");
     assert.ok(pool.isPooled(machine), "Machine should be pooled and free");
   });
@@ -225,6 +194,7 @@ describe("MachinesPool tests", () => {
   it("should get non pooled machines if pool is full", async () => {
     //
     await pool.scale();
+    await assertAllStopped();
 
     // fill the pool
     await claimPoolMachines(pool._minSize);
@@ -232,7 +202,7 @@ describe("MachinesPool tests", () => {
     // get a machine
     let mid = await pool.getMachine({ region: "mad" });
 
-    let machine = await api.getMachine(mid);
+    let machine = await pool.api.getMachine(mid);
     assertNonPooled(machine);
   });
 
@@ -247,7 +217,9 @@ describe("MachinesPool tests", () => {
       pool.getMachine({ region: "mad" }),
     ]);
 
-    let machines = await Promise.all(mids.map((mid) => api.getMachine(mid)));
+    let machines = await Promise.all(
+      mids.map((mid) => pool.api.getMachine(mid))
+    );
 
     // shoould have 4 machines
     assert.equal(machines.length, 4);
@@ -259,7 +231,7 @@ describe("MachinesPool tests", () => {
     assert.ok(machines.every((m) => m.state === "stopped"));
 
     // all should be different
-    assert.ok(new Set(machines.map((m) => m.id)).size === 4);
+    assertDifferent(mids);
   });
 
   it("should handle concurrent getMachine calls with overflow", async () => {
@@ -276,7 +248,9 @@ describe("MachinesPool tests", () => {
         .map((_, i) => pool.getMachine({ tag: "m" + i }))
     );
 
-    let machines = await Promise.all(mids.map((mid) => api.getMachine(mid)));
+    let machines = await Promise.all(
+      mids.map((mid) => pool.api.getMachine(mid))
+    );
 
     // shoould have right size machines
     assert.equal(machines.length, SIZE);
@@ -285,7 +259,7 @@ describe("MachinesPool tests", () => {
     machines.forEach((m) => assert.equal(m.state, "stopped"));
 
     // all should be different
-    assert.ok(new Set(machines.map((m) => m.id)).size === SIZE);
+    assertDifferent(mids);
 
     // pool._minSize machines should be pooled
     assert.equal(
@@ -306,7 +280,11 @@ describe("MachinesPool tests", () => {
 
   it("should retry if machine creation fails", async () => {
     //
-    api.setMaxFailureCount(5);
+    if (!(pool.api instanceof FlyMockApi)) {
+      return;
+    }
+
+    pool.api.setMaxFailureCount(5);
 
     try {
       let mid = await pool.getMachine({ region: "mad" });
@@ -315,11 +293,11 @@ describe("MachinesPool tests", () => {
       assert.equal(e.message, "Failed to create machine");
     }
 
-    api.resetFailureCount();
-    api.setMaxFailureCount(2);
+    pool.api.resetFailureCount();
+    pool.api.setMaxFailureCount(2);
 
     let mid = await pool.getMachine({ region: "mad" });
-    let machine = await api.getMachine(mid);
+    let machine = await pool.api.getMachine(mid);
 
     assertNonPooled(machine);
     assert.equal(machine.state, "stopped");

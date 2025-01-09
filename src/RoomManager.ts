@@ -14,9 +14,9 @@ export class RoomManager {
   //
   pool: MachinesPool;
 
-  constructor(opts: PoolOpts) {
+  constructor(opts: { pool: MachinesPool }) {
     //
-    this.pool = new MachinesPool(opts);
+    this.pool = opts.pool;
   }
 
   joinReqs = new Map<string, Promise<string>>();

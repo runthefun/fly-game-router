@@ -6,6 +6,7 @@ import {
   MachineConfig,
   MachineState,
 } from "./types";
+import { delay } from "./utils";
 
 const flyApp = process.env.FLY_APP_NAME;
 
@@ -61,6 +62,10 @@ export class FlyApi {
     // console.log(log);
 
     if (!resp.ok) {
+      if (resp.status === 408) {
+        throw new Error("timeout");
+      }
+
       const text = await resp.text();
       throw new Error(`${log} - ${text}`);
     }
@@ -169,7 +174,7 @@ export class FlyApi {
     return this.delete(`/v1/apps/${this.appId}/machines/${machineId}`, opts);
   }
 
-  waitMachine(
+  async waitMachine(
     machineId: string,
     opts: {
       state: MachineState;
@@ -180,7 +185,28 @@ export class FlyApi {
     if (opts.state === "stopped" && !opts.instance_id) {
       throw new Error("instance_id is required when waiting for stopped state");
     }
-    return this.get(`/v1/apps/${this.appId}/machines/${machineId}/wait`, opts);
+
+    const url = `/v1/apps/${this.appId}/machines/${machineId}/wait`;
+
+    for (let i = 0; i < 5; i++) {
+      try {
+        await this.get(url, opts);
+        return;
+      } catch (e) {
+        //
+        if (e.message === "timeout") {
+          console.error(
+            "timeout waiting for machine",
+            machineId,
+            "to reach state",
+            opts.state,
+            "retrying after 1s"
+          );
+
+          await delay(1000);
+        }
+      }
+    }
   }
 
   getMachine(machineId: string, app = this.appId): Promise<Machine> {
@@ -233,5 +259,10 @@ export class FlyApi {
 
   getMachineMetadata(machineId: string) {
     return this.get(`/v1/apps/${this.appId}/machines/${machineId}/metadata`);
+  }
+
+  async destroyAll() {
+    const machines = await this.getMachines();
+    await Promise.all(machines.map((m) => this.deleteMachine(m.id)));
   }
 }

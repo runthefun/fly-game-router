@@ -476,7 +476,7 @@ export class MachinesPool {
     }
   }
 
-  async relaseMachine(machineId: string) {
+  async releaseMachine(machineId: string) {
     //
     await this.refresh();
 
@@ -511,7 +511,11 @@ export class MachinesPool {
   private async _createNonPooledMachine(opts?: GetMachineOpts) {
     //
     return this._createMachineWithRetry((m) => ({
-      config: mergeConfigs(m.config, { auto_destroy: true }, opts?.config),
+      config: mergeConfigs(
+        m.config,
+        { auto_destroy: true, metadata: { ref: m.id } },
+        opts?.config
+      ),
       region: opts?.region || m.region,
       skip_launch: true,
     }));
@@ -525,6 +529,7 @@ export class MachinesPool {
           [this._poolKey]: JSON.stringify(
             this._createMachinePoolMetadata(opts, false)
           ),
+          ref: m.id,
         },
       }),
       skip_launch: true,
