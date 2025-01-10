@@ -21,10 +21,17 @@ export class RoomManager {
   }
 
   joinReqs = new Map<string, Promise<string>>();
+  joins = new Map<string, string>();
 
   async getOrCreateMachineForRoom(opts: GetRoomMachineOpts) {
     //
     let roomId = opts.roomId;
+
+    let machineId = this.joins.get(roomId);
+
+    if (machineId != null) {
+      return machineId;
+    }
 
     let joinReq = this.joinReqs.get(roomId);
 
@@ -34,11 +41,18 @@ export class RoomManager {
 
     const req = this._getOrCreateMachineMutex(opts);
 
-    this.joinReqs.set(roomId, req);
+    req.then(
+      (mid) => {
+        this.joins.set(roomId, mid);
+        this.joinReqs.delete(roomId);
+      },
+      (e) => {
+        this.joinReqs.delete(roomId);
+        throw e;
+      }
+    );
 
-    req.finally(() => {
-      setTimeout(() => this.joinReqs.delete(roomId), 2000);
-    });
+    this.joinReqs.set(roomId, req);
 
     return req;
   }
@@ -79,6 +93,11 @@ export class RoomManager {
     let machine = await this.pool.getMachineByTag(roomId);
 
     if (machine == null) {
+      return null;
+    }
+
+    if (this.pool.isLocked(machine.id)) {
+      console.log("Machine was locked meantime", machine.id);
       return null;
     }
 
@@ -154,5 +173,20 @@ export class RoomManager {
     }
 
     return serverSpecs;
+  }
+
+  deleteRoom(roomId: string) {
+    //
+    if (this.joinReqs.has(roomId)) {
+      throw new Error("Room is being prepared");
+    }
+
+    if (!this.joins.has(roomId)) {
+      throw new Error("Room is not joined");
+    }
+
+    const mid = this.joins.get(roomId);
+    this.joins.delete(roomId);
+    return this.pool.releaseMachine(mid);
   }
 }

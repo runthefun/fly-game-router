@@ -41,12 +41,14 @@ export class ResourceLock<T> {
 
   acquire(resourceId: string, ttl = this._maxTTl): boolean {
     //
-    // console.log(
-    //   "acquire",
-    //   resourceId,
-    //   "- cur: ",
-    //   Array.from(this.locks.keys()).join(", ")
-    // );
+    if (this._log) {
+      console.log(
+        "lock.acquire",
+        resourceId,
+        "- cur: ",
+        Array.from(this.locks.keys()).join(", ")
+      );
+    }
 
     if (this.isLocked(resourceId)) {
       return false;
@@ -64,6 +66,15 @@ export class ResourceLock<T> {
 
   release(resourceId: string): boolean {
     //
+    if (this._log) {
+      console.log(
+        "lock.release",
+        resourceId,
+        "- cur: ",
+        Array.from(this.locks.keys()).join(", ")
+      );
+    }
+
     const lock = this.locks.get(resourceId);
 
     if (!lock) return false;
@@ -75,5 +86,9 @@ export class ResourceLock<T> {
 
   isLocked(resourceId: string): boolean {
     return this.locks.has(resourceId);
+  }
+
+  getLocks() {
+    return Array.from(this.locks.keys());
   }
 }
