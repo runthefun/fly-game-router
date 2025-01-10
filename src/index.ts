@@ -65,7 +65,7 @@ const roomManager = new RoomManager({ pool });
 
 const gc = new MachinesGC({
   pool,
-  pollInterval: 5000, // 5s
+  pollInterval: 5 * 60 * 1000, // 5mins
   idleTimeout: 30 * 60 * 1000, // 30m
   onShouldRelease: (mid) => {
     console.log("[GC] Machine", mid, "reached idle timeout. Releasing...");
