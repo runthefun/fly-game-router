@@ -48,7 +48,7 @@ export class RoomManager {
       return joinReq;
     }
 
-    // this.roomLock.acquire(roomId, 0, "getOrCreateMachineForRoom");
+    this.roomLock.acquire(roomId, 0, "getOrCreateMachineForRoom");
     const req = this._getOrCreateMachineMutex(opts);
 
     req
@@ -66,7 +66,7 @@ export class RoomManager {
       .finally(() => {
         //
         // console.log("joins", Array.from(this.joins.keys()));
-        // this.roomLock.release(roomId, "getOrCreateMachineForRoom");
+        this.roomLock.release(roomId, "getOrCreateMachineForRoom");
       });
 
     this.joinReqs.set(roomId, req);
@@ -210,17 +210,20 @@ export class RoomManager {
   async deleteRoom(roomId: string) {
     //
     try {
+      this.roomLock.acquire(roomId, 0, "deleteRoom");
+      this.clearJoins(roomId);
       this._ensureNoJoin(roomId);
       // console.log("deleteRoom", roomId, "start");
       const machine = await this.pool.getMachineByTag(roomId);
       if (machine == null) {
-        return;
+        return false;
       }
       // console.log("deleteRoom", roomId, "got machine", machine.id);
       this._ensureNoJoin(roomId);
       return this.pool.releaseMachine(machine.id);
     } finally {
       //
+      this.roomLock.release(roomId, "deleteRoom");
     }
   }
 
@@ -233,15 +236,23 @@ export class RoomManager {
 
   async deleteMachine(mid: string) {
     //
-    const machine = await this.pool.api.getMachine(mid);
-    if (machine == null) {
+    try {
+      this.roomLock.acquire(mid, 0, "deleteMachine");
+      this.clearJoins(mid);
+      const machine = await this.pool.api.getMachine(mid);
+      if (machine == null) {
+        return false;
+      }
+      const roomId = this.pool.getMachineTag(machine);
+      if (!roomId) {
+        return false;
+      }
+      return this.pool.releaseMachine(mid);
+    } catch (e) {
+      console.error("Failed to delete machine", mid, e);
       return false;
+    } finally {
+      this.roomLock.release(mid, "deleteMachine");
     }
-    const roomId = this.pool.getMachineTag(machine);
-    if (!roomId) {
-      return false;
-    }
-    this._ensureNoJoin(roomId);
-    return this.pool.releaseMachine(mid);
   }
 }

@@ -136,7 +136,7 @@ describe("MachineGC tests", () => {
 
   it("should handle concurrent joins", async () => {
     //
-    let lateJoinId: string;
+    let lateJoinId = "";
     let roomId = "room1";
 
     gc.idleTimeout = 30 * 60 * 1000; // 30 minutes
@@ -144,7 +144,9 @@ describe("MachineGC tests", () => {
     gc.onShouldRelease = async (mid) => {
       await Promise.all([
         roomManager.deleteMachine(mid).catch((e) => {}),
-        roomManager.getOrCreateMachineForRoom({ roomId }),
+        roomManager.getOrCreateMachineForRoom({ roomId }).then((mid) => {
+          lateJoinId = mid;
+        }),
       ]);
     };
 
@@ -161,9 +163,11 @@ describe("MachineGC tests", () => {
       await gc.collect(gc.pollInterval);
     }
 
-    const machine = await roomManager.pool.api.getMachine(mid);
-
+    if (lateJoinId === mid) {
+      console.log("machine was reused", lateJoinId);
+    }
+    const machine = await roomManager.pool.api.getMachine(lateJoinId);
     assert.ok(machine, "Machine should exist");
-    await assertRoomMachine(roomId, mid);
+    await assertRoomMachine(roomId, lateJoinId);
   });
 });
