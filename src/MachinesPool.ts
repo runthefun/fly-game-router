@@ -152,7 +152,9 @@ export class MachinesPool {
     const res = await this.getMachines();
     await Promise.all(
       res
-        .filter((m) => opts?.force || m.state !== "started")
+        .filter(
+          (m) => opts?.force || (m.state !== "started" && !this.isLocked(m.id))
+        )
         .map(async (m) => {
           try {
             if (m.state === "started") {
@@ -176,6 +178,7 @@ export class MachinesPool {
 
   stop() {
     this._job.stop();
+    this.reset();
   }
 
   async scale() {
@@ -267,7 +270,8 @@ export class MachinesPool {
         await this._api.deleteMachine(m.id, { force: true });
         this._machines.delete(m.id);
       },
-      0
+      0,
+      "delete"
     );
   }
 
@@ -278,7 +282,7 @@ export class MachinesPool {
       m.id,
       async () => {
         //
-        // console.log("[POOL] releaseMachine", m.id);
+        //console.log("[POOL] updateMachineState", m.id, state);
 
         await this._api.updateMachineMetadata(
           m.id,
@@ -289,7 +293,8 @@ export class MachinesPool {
 
         m.config.metadata[this._poolKey] = state;
       },
-      0
+      0,
+      "state=" + state
     );
   }
 
@@ -306,12 +311,16 @@ export class MachinesPool {
     return this._machinesLock.isLocked(machineId);
   }
 
-  lockMachine(machineId: string, ttl: number) {
-    return this._machinesLock.acquire(machineId, ttl);
+  lockMachine(machineId: string, ttl: number, reason?: string) {
+    return this._machinesLock.acquire(machineId, ttl, reason);
   }
 
-  unlockMachine(machineId: string) {
-    return this._machinesLock.release(machineId);
+  unlockMachine(machineId: string, reason?: string) {
+    return this._machinesLock.release(machineId, reason);
+  }
+
+  _unsafe_unlockAll() {
+    return this._machinesLock._unsafe_clear();
   }
 
   tryWithLock<T>(machineId: string, task: () => Promise<T>, ttlAfter) {
@@ -474,7 +483,7 @@ export class MachinesPool {
     }
 
     try {
-      this.lockMachine(machineId, 5000);
+      this.lockMachine(machineId, 5000, "release");
 
       const machine = await this._api.getMachine(machineId);
 
@@ -504,7 +513,7 @@ export class MachinesPool {
       }
 
       // release lock for update task
-      this.unlockMachine(machineId);
+      this.unlockMachine(machineId, "release");
       await this._updateMachineState(machine, "free");
 
       this._eventLogger.logEvent({
@@ -521,7 +530,7 @@ export class MachinesPool {
       console.error("Failed to release machine", e);
       return false;
     } finally {
-      this.unlockMachine(machineId);
+      this.unlockMachine(machineId, "release");
     }
   }
 
@@ -588,7 +597,9 @@ export class MachinesPool {
 
   async getMachineByTag(tag: string) {
     //
-    const machines = await this.api.getMachinesByMetadata({ tag });
+    const machines = await this.api.getMachinesByMetadata({
+      [this._poolKey]: tag,
+    });
     if (machines.length == 0) return null;
     const m = machines[0];
     if (this.isLocked(m.id)) return null;

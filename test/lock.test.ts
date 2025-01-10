@@ -2,7 +2,7 @@ import assert from "assert";
 import { ResourceLock } from "../src/lock";
 import { createDeferred, delay } from "./utils";
 
-describe("MachinesPool tests", () => {
+describe("Lock tests", () => {
   let lock: ResourceLock<string>;
 
   beforeEach(() => {

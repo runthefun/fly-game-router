@@ -8,6 +8,7 @@ import { FlyApi } from "./FlyApi";
 import { ENV } from "./env";
 import { joinReqBodySchema } from "./schemas";
 import { MachinesPool } from "./MachinesPool";
+import { MachinesGC } from "./MachineGC";
 
 //#region middleware
 const corsOptions = {
@@ -62,8 +63,19 @@ const pool = new MachinesPool({
 
 const roomManager = new RoomManager({ pool });
 
+const gc = new MachinesGC({
+  pool,
+  pollInterval: 5000, // 5s
+  idleTimeout: 30 * 60 * 1000, // 30m
+  onShouldRelease: (mid) => {
+    console.log("[GC] Machine", mid, "reached idle timeout. Releasing...");
+    roomManager.deleteMachine(mid);
+  },
+});
+
 if (process.env.NODE_ENV === "production" && ENV.CURRENT_APP) {
   // roomManager.pool.start();
+  gc.start();
 }
 
 app.post("/join", async (req, res) => {
@@ -105,7 +117,7 @@ app.post("/pool-reset", basicAuthMiddleware, async (req, res) => {
   //
   try {
     //
-    await roomManager.pool.reset();
+    await roomManager.pool.stop();
     res.json({
       success: true,
       message: "Pool reset",
@@ -288,6 +300,9 @@ server.on("upgrade", async (req, socket, head) => {
     return;
   }
 
+  // reset idle time
+  gc.touchMachine(machineId);
+
   const headers = [
     "HTTP/1.1 101 Switching Protocols",
     `fly-replay: app=${ENV.POOL_APP};instance=${machineId}`,
@@ -296,6 +311,7 @@ server.on("upgrade", async (req, socket, head) => {
   const response = headers.concat("\r\n").join("\r\n");
 
   socket.end(response);
+
   console.log("socket replay", response);
   //
 });

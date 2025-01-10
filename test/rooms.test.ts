@@ -4,6 +4,7 @@ import { defaultConfig } from "../src/machine.config";
 import { ServerSpecs } from "../src/schemas";
 import { createMockPool } from "./pools";
 import { delay, randomId } from "./utils";
+import { MachinesGC } from "../src/MachineGC";
 
 describe("RoomManager tests", () => {
   //
@@ -64,6 +65,10 @@ describe("RoomManager tests", () => {
       roomId,
       region: "mad",
     });
+
+    roomManager.clearJoins(roomId);
+    roomManager.pool._unsafe_unlockAll();
+
     let mid2 = await roomManager.getOrCreateMachineForRoom({
       roomId,
       region: "mad",
@@ -83,6 +88,10 @@ describe("RoomManager tests", () => {
       roomId: roomId1,
       region: "mad",
     });
+
+    roomManager.clearJoins(roomId1);
+    roomManager.pool._unsafe_unlockAll();
+
     let mid2 = await roomManager.getOrCreateMachineForRoom({
       roomId: roomId2,
       region: "mad",
@@ -192,6 +201,9 @@ describe("RoomManager tests", () => {
       idleTimeout: 300,
     };
 
+    roomManager.clearJoins(roomId);
+    roomManager.pool._unsafe_unlockAll();
+
     let mid2 = await roomManager.getOrCreateMachineForRoom({
       roomId,
       region: "mad",
@@ -205,7 +217,33 @@ describe("RoomManager tests", () => {
     assert.equal(machine.config.guest.cpu_kind, specs.guest.cpu_kind);
   });
 
-  it("should handle concurrent join/release", async () => {
+  it("should release a machine", async () => {
+    //
+    let roomId = "room1";
+
+    let mid = await roomManager.getOrCreateMachineForRoom({
+      roomId,
+      region: "mad",
+    });
+
+    await assertRoomMachine(roomId, mid);
+
+    roomManager.clearJoins(roomId);
+    roomManager.pool._unsafe_unlockAll();
+
+    await roomManager.deleteRoom(roomId);
+
+    const machine = await roomManager.pool.api.getMachine(mid);
+
+    assert.ok(machine, "Machine should exist");
+    assert.equal(
+      roomManager.pool.getMachineTag(machine),
+      "free",
+      "Machine should be free"
+    );
+  });
+
+  it("should handle concurrent join/release by room id", async () => {
     // 1- join a room
     // 2- simultaneously release the machine and send andother join request
     // 3- we should never get the 2nd join to reuse the released machine
@@ -219,25 +257,88 @@ describe("RoomManager tests", () => {
 
     await assertRoomMachine(roomId, mid1);
 
+    roomManager.clearJoins(roomId);
+    roomManager.pool._unsafe_unlockAll();
+    // console.log("******** delete all joins ********");
+
+    // roomManager.roomLock._log = true;
+    // roomManager.pool._machinesLock._log = true;
+
     let [res, mid2] = await Promise.all([
-      roomManager.deleteRoom(roomId),
+      roomManager.deleteRoom(roomId).catch((e) => {
+        // console.error("Error deleting room", e);
+      }),
       roomManager.getOrCreateMachineForRoom({
         roomId,
         region: "mad",
       }),
     ]);
 
+    roomManager.pool._unsafe_unlockAll();
+
     // either machine was reused or a new one was created
     // if resus
     if (mid1 === mid2) {
       //
-      console.log("reused machine", mid1);
+      console.log("Machine was reused");
       const m = await roomManager.pool.api.getMachine(mid1);
       assert.equal(roomManager.pool.getMachineTag(m), roomId);
       assert.equal(m.state, "started");
     } else {
+      // new machine was created
+      console.log("Machine was created");
+      await assertRoomMachine(roomId, mid2);
+
+      const m = await roomManager.pool.api.getMachine(mid1);
+      // should be free
+      assert.ok(roomManager.pool.isFree(m));
+    }
+  });
+
+  it("should handle concurrent join/release by machine id", async () => {
+    // 1- join a room
+    // 2- simultaneously release the machine and send andother join request
+    // 3- we should never get the 2nd join to reuse the released machine
+
+    const roomId = "room1-test";
+
+    let mid1 = await roomManager.getOrCreateMachineForRoom({
+      roomId,
+      region: "mad",
+    });
+
+    await assertRoomMachine(roomId, mid1);
+
+    roomManager.clearJoins(roomId);
+    roomManager.pool._unsafe_unlockAll();
+    // console.log("******** delete all joins ********");
+
+    // roomManager.roomLock._log = true;
+    // roomManager.pool._machinesLock._log = true;
+
+    let [res, mid2] = await Promise.all([
+      roomManager.deleteMachine(mid1).catch((e) => {
+        // console.error("Error deleting room", e);
+      }),
+      roomManager.getOrCreateMachineForRoom({
+        roomId,
+        region: "mad",
+      }),
+    ]);
+
+    roomManager.pool._unsafe_unlockAll();
+
+    // either machine was reused or a new one was created
+    // if resus
+    if (mid1 === mid2) {
       //
-      console.log("new machine", mid2);
+      // console.log("Machine was reused");
+      const m = await roomManager.pool.api.getMachine(mid1);
+      assert.equal(roomManager.pool.getMachineTag(m), roomId);
+      assert.equal(m.state, "started");
+    } else {
+      // new machine was created
+      // console.log("Machine was created");
       await assertRoomMachine(roomId, mid2);
 
       const m = await roomManager.pool.api.getMachine(mid1);

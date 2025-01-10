@@ -559,7 +559,7 @@ export class FlyMockApi extends FlyApi {
     const machine = this._findMachine(machineId);
 
     if (!machine) {
-      return Promise.reject(new Error("Machine not found"));
+      return Promise.reject(new Error("Machine not found " + machineId));
     }
 
     machine.config.metadata[key] = value;
