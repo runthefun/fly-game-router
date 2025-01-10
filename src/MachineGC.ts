@@ -87,7 +87,7 @@ export class MachinesGC {
 
     machinesToCollect.forEach((machine) => {
       //
-      this.pool._releaseMachineInternal(machine);
+      //
     });
   }
 
