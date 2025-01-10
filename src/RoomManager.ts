@@ -1,4 +1,5 @@
 import { DbService } from "./db";
+import { MachinesGC } from "./MachineGC";
 import { MachinesPool, PoolOpts } from "./MachinesPool";
 import { ServerSpecs, serverSpecsSchema } from "./schemas";
 import { MachineConfig } from "./types";
@@ -14,16 +15,23 @@ export class RoomManager {
   //
   pool: MachinesPool;
 
-  constructor(opts: PoolOpts) {
+  constructor(opts: { pool: MachinesPool }) {
     //
-    this.pool = new MachinesPool(opts);
+    this.pool = opts.pool;
   }
 
   joinReqs = new Map<string, Promise<string>>();
+  joins = new Map<string, string>();
 
   async getOrCreateMachineForRoom(opts: GetRoomMachineOpts) {
     //
     let roomId = opts.roomId;
+
+    let machineId = this.joins.get(roomId);
+
+    if (machineId != null) {
+      return machineId;
+    }
 
     let joinReq = this.joinReqs.get(roomId);
 
@@ -33,11 +41,18 @@ export class RoomManager {
 
     const req = this._getOrCreateMachineMutex(opts);
 
-    this.joinReqs.set(roomId, req);
+    req.then(
+      (mid) => {
+        this.joins.set(roomId, mid);
+        this.joinReqs.delete(roomId);
+      },
+      (e) => {
+        this.joinReqs.delete(roomId);
+        throw e;
+      }
+    );
 
-    req.finally(() => {
-      setTimeout(() => this.joinReqs.delete(roomId), 2000);
-    });
+    this.joinReqs.set(roomId, req);
 
     return req;
   }
@@ -59,7 +74,9 @@ export class RoomManager {
     }
 
     // Not found, get a new machine from the pool
-    let mid = await this.pool.getMachine({ region, config });
+    let mid = await this.pool.getMachine({ region, config, tag: roomId });
+
+    await this.pool.api.startMachine(mid, true);
 
     if (mid == null) {
       throw new Error("Failed to get machine from pool for room " + roomId);
@@ -73,49 +90,69 @@ export class RoomManager {
 
   async getRoomMachine(roomId: string) {
     //
-    let machines = await this.pool._api.getMachinesByMetadata({
-      roomId,
-    });
+    let machine = await this.pool.getMachineByTag(roomId);
 
-    let machine = machines?.find(
-      /*
-        We need the isClaimed check since roomId is not cleaned up when the
-        machine is stopped. So we might end up getting a machine that's in the 
-        process of being prepared by the pool for another room.
-      */
-      (m) => m.state === "started" && !this.pool.isClaimed(m.id)
-    );
+    if (machine == null) {
+      return null;
+    }
 
-    return machine?.id;
+    if (this.pool.isLocked(machine.id)) {
+      console.log("Machine was locked meantime", machine.id);
+      return null;
+    }
+
+    // ensure the machine is running
+    if (machine.state != "started") {
+      await this.pool.api.startMachine(machine.id, true);
+    }
+
+    return machine.id;
   }
 
   async getMachines() {
     //
     const machines = await this.pool._api.getMachines();
 
-    return (
-      machines
-        // .filter((m) => m.state === "started" && !this.pool.isClaimed(m.id))
-        .map((m) => {
-          //
-          return {
-            id: m.id,
-            state: m.state,
-            region: m.region,
-            cpu_kind: m.config.guest.cpu_kind,
-            cpus: m.config.guest.cpus,
-            memory_mb: m.config.guest.memory_mb,
-            roomId: m.state === "started" ? m.config.metadata.roomId : "",
-            pooled: this.pool.isPooled(m),
-          };
-        })
-    );
+    return machines.map((m) => {
+      //
+      return {
+        id: m.id,
+        state: m.state,
+        region: m.region,
+        cpu_kind: m.config.guest.cpu_kind,
+        cpus: m.config.guest.cpus,
+        memory_mb: m.config.guest.memory_mb,
+        roomId: m.config.metadata.roomId,
+        pooled: this.pool.isPooled(m),
+      };
+    });
   }
 
   async getMachineConfig(roomId: string) {
     //
 
     let config: Partial<MachineConfig> = null;
+
+    let serverSpecs = await this._getServerSpecs(roomId);
+
+    if (serverSpecs) {
+      config = {
+        env: {
+          ROOM_IDLE_TIMEOUT_SEC: serverSpecs.idleTimeout,
+        },
+        guest: {
+          cpu_kind: serverSpecs.guest.cpu_kind,
+          cpus: serverSpecs.guest.cpus,
+          memory_mb: serverSpecs.guest.memory_mb,
+        },
+      };
+    }
+
+    return config;
+  }
+
+  async _getServerSpecs(roomId: string) {
+    //
     let serverSpecs: ServerSpecs;
     let gameMeta;
 
@@ -135,19 +172,21 @@ export class RoomManager {
       }
     }
 
-    if (serverSpecs) {
-      config = {
-        env: {
-          ROOM_IDLE_TIMEOUT_SEC: serverSpecs.idleTimeout,
-        },
-        guest: {
-          cpu_kind: serverSpecs.guest.cpu_kind,
-          cpus: serverSpecs.guest.cpus,
-          memory_mb: serverSpecs.guest.memory_mb,
-        },
-      };
+    return serverSpecs;
+  }
+
+  deleteRoom(roomId: string) {
+    //
+    if (this.joinReqs.has(roomId)) {
+      throw new Error("Room is being prepared");
     }
 
-    return config;
+    if (!this.joins.has(roomId)) {
+      throw new Error("Room is not joined");
+    }
+
+    const mid = this.joins.get(roomId);
+    this.joins.delete(roomId);
+    return this.pool.releaseMachine(mid);
   }
 }

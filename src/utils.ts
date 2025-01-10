@@ -45,3 +45,14 @@ export function randomDelay(min: number, max: number) {
 export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export async function after(promise: Promise<any>, ms: number) {
+  await promise;
+  await delay(ms);
+}
+
+export function precondition(condition: any, message: string) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}

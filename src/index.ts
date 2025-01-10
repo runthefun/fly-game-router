@@ -7,6 +7,7 @@ import { RoomManager } from "./RoomManager";
 import { FlyApi } from "./FlyApi";
 import { ENV } from "./env";
 import { joinReqBodySchema } from "./schemas";
+import { MachinesPool } from "./MachinesPool";
 
 //#region middleware
 const corsOptions = {
@@ -48,7 +49,7 @@ app.get("/", (req, res) => {
   res.send(`🥸🥸🥸🥸🥸🥸🥸`);
 });
 
-const roomManager = new RoomManager({
+const pool = new MachinesPool({
   minSize: 10,
   maxSize: 100,
   templateApp: ENV.TEMPLATE_APP,
@@ -58,6 +59,8 @@ const roomManager = new RoomManager({
     apiKey: ENV.FLY_API_KEY,
   }),
 });
+
+const roomManager = new RoomManager({ pool });
 
 if (process.env.NODE_ENV === "production" && ENV.CURRENT_APP) {
   // roomManager.pool.start();

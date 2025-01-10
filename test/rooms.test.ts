@@ -1,16 +1,9 @@
 import assert from "assert";
-import { FlyMockApi } from "./FlyMockApi";
 import { RoomManager } from "../src/RoomManager";
 import { defaultConfig } from "../src/machine.config";
-import { DbService } from "../src/db";
 import { ServerSpecs } from "../src/schemas";
-
-let srcAppApi: FlyMockApi;
-let api: FlyMockApi;
-
-const MIN_POOL_SIZE = 5;
-const MAX_POOL_SIZE = 10;
-const POLL_INTERVAL = 100;
+import { createMockPool } from "./pools";
+import { delay, randomId } from "./utils";
 
 describe("RoomManager tests", () => {
   //
@@ -18,46 +11,34 @@ describe("RoomManager tests", () => {
 
   let mockSpecs: Record<string, ServerSpecs> = {};
 
-  before(async () => {
-    //
-    FlyMockApi.resetAll();
-    srcAppApi = FlyMockApi.create("srcApp");
-    api = FlyMockApi.create("default");
-
-    srcAppApi._machinesDb.push(
-      srcAppApi._mockCreateMachine({
-        id: "mref",
-        config: {
-          ...defaultConfig,
-          metadata: { ref: "mref" },
-        },
-        region: "lhr",
-      })
-    );
-
-    DbService.getGameMetadata = async (gameId: string) => {
-      return {
-        id: gameId,
-        serverSpecs: mockSpecs[gameId],
-      };
-    };
-  });
-
   beforeEach(() => {
     //
-    roomManager = new RoomManager({
-      minSize: MIN_POOL_SIZE,
-      maxSize: MAX_POOL_SIZE,
-      api,
-      templateApp: "srcApp",
-      templateMachineId: "mref",
-    });
+    let pool = createMockPool();
+
+    roomManager = new RoomManager({ pool });
+
+    roomManager._getServerSpecs = async (roomId: string) => {
+      return mockSpecs[roomId] || defaultConfig;
+    };
   });
 
   afterEach(async () => {
     //
     await roomManager.pool.reset();
   });
+
+  const assertRoomMachine = async (roomId: string, mid: string) => {
+    //
+    const machine = await roomManager.pool.api.getMachine(mid);
+
+    assert.ok(machine, "Machine should exist");
+    assert.equal(
+      roomManager.pool.getMachineTag(machine),
+      roomId,
+      "Machine should be for room " + roomId
+    );
+    assert.equal(machine?.state, "started", "Machine should be started");
+  };
 
   it("should create a machine for a room", async () => {
     //
@@ -72,15 +53,7 @@ describe("RoomManager tests", () => {
       ip: "12.12.12.12",
     });
 
-    const machine = await api.getMachine(mid);
-
-    assert.equal(machine?.state, "started", "Machine should be started");
-
-    assert.equal(
-      machine.config.metadata.roomId,
-      roomId,
-      "Machine should have roomId metadata"
-    );
+    await assertRoomMachine(roomId, mid);
   });
 
   it("should reuse a machine for a room", async () => {
@@ -96,14 +69,7 @@ describe("RoomManager tests", () => {
       region: "mad",
     });
 
-    const machine1 = await api.getMachine(mid1);
-
-    assert.equal(machine1?.state, "started", "Machine1 should be started");
-    assert.equal(
-      machine1?.config.metadata.roomId,
-      roomId,
-      "Machine should be for room1"
-    );
+    await assertRoomMachine(roomId, mid1);
 
     assert.equal(mid1, mid2, "Machine should be reused");
   });
@@ -122,22 +88,8 @@ describe("RoomManager tests", () => {
       region: "mad",
     });
 
-    const machine1 = await api.getMachine(mid1);
-    const machine2 = await api.getMachine(mid2);
-
-    assert.equal(machine1?.state, "started", "Machine1 should be started");
-    assert.equal(machine2?.state, "started", "Machine2 should be started");
-
-    assert.equal(
-      machine1?.config.metadata.roomId,
-      roomId1,
-      "Machine1 should be for room1"
-    );
-    assert.equal(
-      machine2?.config.metadata.roomId,
-      roomId2,
-      "Machine2 should be for room2"
-    );
+    await assertRoomMachine(roomId1, mid1);
+    await assertRoomMachine(roomId2, mid2);
 
     assert.notEqual(mid1, mid2, "Machine should not be reused");
   });
@@ -159,14 +111,7 @@ describe("RoomManager tests", () => {
 
     assert.equal(mid1, mid2, "Machine should be reused");
 
-    const machine = await api.getMachine(mid1);
-
-    assert.equal(machine?.state, "started", "Machine1 should be started");
-    assert.equal(
-      machine?.config.metadata.roomId,
-      roomId1,
-      "Machine should be for room1"
-    );
+    await assertRoomMachine(roomId1, mid1);
 
     let req3 = roomManager.getOrCreateMachineForRoom({
       roomId: roomId1,
@@ -201,13 +146,14 @@ describe("RoomManager tests", () => {
       specs: true,
     });
 
-    const machine = await api.getMachine(mid);
+    await assertRoomMachine(roomId, mid);
+
+    const machine = await roomManager.pool.api.getMachine(mid);
 
     assert.equal(machine?.state, "started", "Machine should be started");
     assert.equal(machine.config.guest.cpu_kind, specs.guest.cpu_kind);
     assert.equal(machine.config.guest.cpus, specs.guest.cpus);
     assert.equal(machine.config.guest.memory_mb, specs.guest.memory_mb);
-    assert.equal(machine.config.metadata.roomId, roomId);
     assert.equal(machine.config.env.ROOM_IDLE_TIMEOUT_SEC, specs.idleTimeout);
   });
 
@@ -234,6 +180,8 @@ describe("RoomManager tests", () => {
       specs: true,
     });
 
+    await assertRoomMachine(roomId, mid1);
+
     // change the specs in meantime
     mockSpecs[roomId] = {
       guest: {
@@ -252,8 +200,49 @@ describe("RoomManager tests", () => {
 
     assert.equal(mid1, mid2, "Machine should be reused");
 
-    const machine = await api.getMachine(mid1);
-    assert.equal(machine?.state, "started", "Machine should be started");
+    const machine = await roomManager.pool.api.getMachine(mid1);
+
     assert.equal(machine.config.guest.cpu_kind, specs.guest.cpu_kind);
+  });
+
+  it("should handle concurrent join/release", async () => {
+    // 1- join a room
+    // 2- simultaneously release the machine and send andother join request
+    // 3- we should never get the 2nd join to reuse the released machine
+
+    const roomId = "room1-test";
+
+    let mid1 = await roomManager.getOrCreateMachineForRoom({
+      roomId,
+      region: "mad",
+    });
+
+    await assertRoomMachine(roomId, mid1);
+
+    let [res, mid2] = await Promise.all([
+      roomManager.deleteRoom(roomId),
+      roomManager.getOrCreateMachineForRoom({
+        roomId,
+        region: "mad",
+      }),
+    ]);
+
+    // either machine was reused or a new one was created
+    // if resus
+    if (mid1 === mid2) {
+      //
+      console.log("reused machine", mid1);
+      const m = await roomManager.pool.api.getMachine(mid1);
+      assert.equal(roomManager.pool.getMachineTag(m), roomId);
+      assert.equal(m.state, "started");
+    } else {
+      //
+      console.log("new machine", mid2);
+      await assertRoomMachine(roomId, mid2);
+
+      const m = await roomManager.pool.api.getMachine(mid1);
+      // should be free
+      assert.ok(roomManager.pool.isFree(m));
+    }
   });
 });
