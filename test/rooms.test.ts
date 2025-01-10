@@ -1,8 +1,6 @@
 import assert from "assert";
-import { FlyMockApi } from "./FlyMockApi";
 import { RoomManager } from "../src/RoomManager";
 import { defaultConfig } from "../src/machine.config";
-import { DbService } from "../src/db";
 import { ServerSpecs } from "../src/schemas";
 import { createMockPool } from "./pools";
 
@@ -17,6 +15,10 @@ describe("RoomManager tests", () => {
     let pool = createMockPool();
 
     roomManager = new RoomManager({ pool });
+
+    roomManager._getServerSpecs = async (roomId: string) => {
+      return mockSpecs[roomId] || defaultConfig;
+    };
   });
 
   afterEach(async () => {

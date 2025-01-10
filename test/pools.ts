@@ -5,7 +5,7 @@ import { MachinesPool } from "../src/MachinesPool";
 import { FlyMockApi } from "./FlyMockApi";
 
 const MIN_POOL_SIZE = 5;
-const MAX_POOL_SIZE = 10;
+const MAX_POOL_SIZE = 15;
 const POLL_INTERVAL = 5 * 60 * 1000;
 
 export function createMockPool() {

@@ -1,4 +1,5 @@
 import { DbService } from "./db";
+import { MachinesGC } from "./MachineGC";
 import { MachinesPool, PoolOpts } from "./MachinesPool";
 import { ServerSpecs, serverSpecsSchema } from "./schemas";
 import { MachineConfig } from "./types";
@@ -59,7 +60,7 @@ export class RoomManager {
     }
 
     // Not found, get a new machine from the pool
-    let mid = await this.pool.getMachine({ region, config });
+    let mid = await this.pool.getMachine({ region, config, tag: roomId });
 
     await this.pool.api.startMachine(mid, true);
 
@@ -75,15 +76,11 @@ export class RoomManager {
 
   async getRoomMachine(roomId: string) {
     //
-    let machines = await this.pool._api.getMachinesByMetadata({
-      roomId,
-    });
+    let machine = await this.pool.getMachineByTag(roomId);
 
-    if (machines.length == 0) {
+    if (machine == null) {
       return null;
     }
-
-    const machine = machines[0];
 
     // ensure the machine is running
     if (machine.state != "started") {
@@ -116,6 +113,27 @@ export class RoomManager {
     //
 
     let config: Partial<MachineConfig> = null;
+
+    let serverSpecs = await this._getServerSpecs(roomId);
+
+    if (serverSpecs) {
+      config = {
+        env: {
+          ROOM_IDLE_TIMEOUT_SEC: serverSpecs.idleTimeout,
+        },
+        guest: {
+          cpu_kind: serverSpecs.guest.cpu_kind,
+          cpus: serverSpecs.guest.cpus,
+          memory_mb: serverSpecs.guest.memory_mb,
+        },
+      };
+    }
+
+    return config;
+  }
+
+  async _getServerSpecs(roomId: string) {
+    //
     let serverSpecs: ServerSpecs;
     let gameMeta;
 
@@ -135,19 +153,6 @@ export class RoomManager {
       }
     }
 
-    if (serverSpecs) {
-      config = {
-        env: {
-          ROOM_IDLE_TIMEOUT_SEC: serverSpecs.idleTimeout,
-        },
-        guest: {
-          cpu_kind: serverSpecs.guest.cpu_kind,
-          cpus: serverSpecs.guest.cpus,
-          memory_mb: serverSpecs.guest.memory_mb,
-        },
-      };
-    }
-
-    return config;
+    return serverSpecs;
   }
 }

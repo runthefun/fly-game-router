@@ -122,12 +122,17 @@ export class FlyApi {
     return this.getMachines({ metadata });
   }
 
+  private _metaVal(value: any) {
+    return typeof value === "string" ? value : JSON.stringify(value);
+  }
+
   updateMachineMetadata(machineId: string, key: string, value: string) {
     //
+
     return this.post(
       `/v1/apps/${this.appId}/machines/${machineId}/metadata/${key}`,
       {
-        value,
+        value: this._metaVal(value),
       }
     );
   }

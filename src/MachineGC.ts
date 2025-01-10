@@ -1,5 +1,5 @@
 import { BackgroundJob } from "./job";
-import { MachinesPool, PoolMachine } from "./MachinesPool";
+import { MachinesPool } from "./MachinesPool";
 
 /**
  * This class is responsible for the garbage collection of machines create from MachinesPool.
@@ -12,20 +12,24 @@ export class MachinesGC {
   //
   pool: MachinesPool;
   private _job: BackgroundJob;
+  private _idleTimeout: number;
 
   private _machinesIdleTimes = new Map<string, number>();
 
   constructor(opts: {
     pool: MachinesPool;
     pollInterval: number;
+    idleTimeout: number;
     healthCheckUrl: (mid) => string;
   }) {
     //
     this.pool = opts.pool;
 
+    this._idleTimeout = opts.idleTimeout;
+
     this._job = new BackgroundJob({
       id: "machines-gc",
-      task: () => this._process(),
+      task: () => this.collect(),
       pollInterval: opts.pollInterval,
     });
   }
@@ -53,7 +57,7 @@ export class MachinesGC {
     this._job.stop();
   }
 
-  async _process() {
+  async collect() {
     //
     const claimedMachines = await this.pool.getClaimedMachines();
 
@@ -68,7 +72,7 @@ export class MachinesGC {
 
     stoppedMachines.forEach((machine) => {
       //
-      const idleTimeout = machine.poolMetadata.idleTimeout;
+      const idleTimeout = this._idleTimeout;
       let currentIdleTime = prevTimeouts.get(machine.id) ?? 0;
 
       if (currentIdleTime >= idleTimeout) {
@@ -85,5 +89,9 @@ export class MachinesGC {
       //
       this.pool.releaseMachine(machine.id);
     });
+  }
+
+  touchMachine(mid: string) {
+    this._machinesIdleTimes.set(mid, 0);
   }
 }

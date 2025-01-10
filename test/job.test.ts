@@ -2,7 +2,7 @@ import assert from "assert";
 import { BackgroundJob } from "../src/job";
 import { delay, randomDelay, waitCondition } from "./utils";
 
-describe("MachinesPool tests", () => {
+describe("Job tests", () => {
   //
   let jobId = 0;
   let job: BackgroundJob;

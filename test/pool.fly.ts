@@ -150,20 +150,11 @@ describe("Pool Fly tests", () => {
     // all should be different
     assertDifferent(mids);
 
-    // pool._minSize machines should be pooled
-    assert.equal(
-      machines.filter((m) => pool.isPooled(m)).length,
-      pool._minSize
-    );
-
-    // all others should be non pooled
-    assert.equal(machines.filter((m) => !pool.isPooled(m)).length, OVERFLOW);
-
     await pool.scale();
 
     await assertPoolSize({
       free: pool._minSize,
-      total: pool._minSize + SIZE - OVERFLOW,
+      total: pool._minSize + SIZE,
     });
   });
 });
