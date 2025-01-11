@@ -215,7 +215,16 @@ export class FlyApi {
   }
 
   getMachine(machineId: string, app = this.appId): Promise<Machine> {
-    return this.get(`/v1/apps/${app}/machines/${machineId}`);
+    return this.get(`/v1/apps/${app}/machines/${machineId}`).then(
+      (res: Machine) => {
+        //
+        if (res?.state === "destroyed") {
+          return null;
+        }
+
+        return res;
+      }
+    );
   }
 
   async cloneMachine(
