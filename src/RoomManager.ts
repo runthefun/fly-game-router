@@ -8,6 +8,7 @@ import { MachineConfig } from "./types";
 export interface GetRoomMachineOpts {
   roomId: string;
   autoCreate?: boolean;
+  autoDestroy?: boolean;
   region?: string;
   ip?: string;
   specs?: boolean;
@@ -93,6 +94,11 @@ export class RoomManager {
 
     if (opts.specs) {
       config = await this.getMachineConfig(roomId);
+    }
+
+    if (opts.autoDestroy) {
+      config ??= {};
+      config.auto_destroy = true;
     }
 
     // Not found, get a new machine from the pool

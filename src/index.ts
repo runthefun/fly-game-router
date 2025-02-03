@@ -2,7 +2,6 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import basicAuth from "express-basic-auth";
-import { JoinReqBody } from "./types";
 import { RoomManager } from "./RoomManager";
 import { FlyApi } from "./FlyApi";
 import { ENV } from "./env";
@@ -128,7 +127,7 @@ app.post("/create", async (req, res) => {
     //
     const body = CreateReqBodySchema.parse(req.body);
 
-    let { gameId, roomId } = body;
+    let { gameId, roomId, autoDestroy } = body;
 
     const region = req.get("Fly-Region");
     const ip = req.get("Fly-Client-IP");
@@ -140,6 +139,7 @@ app.post("/create", async (req, res) => {
     const st = Date.now();
     const machineId = await roomManager.getOrCreateMachineForRoom({
       roomId: getRoomId(gameId, roomId),
+      autoDestroy,
       region,
       ip,
     });

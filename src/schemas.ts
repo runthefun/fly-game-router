@@ -32,6 +32,7 @@ export const CreateReqBodySchema = z.object({
   gameId: z.string().nonempty(),
   roomId: z.string().optional(),
   draft: z.boolean().optional(),
+  autoDestroy: z.boolean().optional(),
 });
 
 export type JoinReqBody = z.infer<typeof joinReqBodySchema>;
