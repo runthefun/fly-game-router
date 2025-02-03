@@ -85,7 +85,7 @@ app.post("/join", async (req, res) => {
     const body = joinReqBodySchema.parse(req.body);
 
     let { roomId, gameId, specs } = body;
-    roomId = roomId || gameId;
+    roomId = roomId || "default";
 
     const region = req.get("Fly-Region");
     const ip = req.get("Fly-Client-IP");
@@ -95,7 +95,7 @@ app.post("/join", async (req, res) => {
     const st = Date.now();
     const machineId = await roomManager.getOrCreateMachineForRoom({
       gameId,
-      roomId,
+      roomId: `${gameId}/${roomId}`,
       region,
       ip,
       specs,
@@ -123,7 +123,7 @@ app.post("/create", async (req, res) => {
     const body = CreateReqBodySchema.parse(req.body);
 
     let { gameId, roomId } = body;
-    roomId = roomId || gameId;
+    roomId = roomId || "default";
 
     const region = req.get("Fly-Region");
     const ip = req.get("Fly-Client-IP");
@@ -134,8 +134,8 @@ app.post("/create", async (req, res) => {
 
     const st = Date.now();
     const machineId = await roomManager.getOrCreateMachineForRoom({
-      roomId,
       gameId,
+      roomId: `${gameId}/${roomId}`,
       region,
       ip,
     });
