@@ -95,7 +95,7 @@ app.post("/join", async (req, res) => {
     const st = Date.now();
     const machineId = await roomManager.getOrCreateMachineForRoom({
       gameId,
-      roomId: gameId,
+      roomId,
       region,
       ip,
       specs,
