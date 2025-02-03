@@ -7,6 +7,7 @@ import { MachineConfig } from "./types";
 
 export interface GetRoomMachineOpts {
   roomId: string;
+  gameId: string;
   region?: string;
   ip?: string;
   specs?: boolean;

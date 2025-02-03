@@ -21,10 +21,17 @@ export type ServerSpecs = z.infer<typeof serverSpecsSchema>;
 
 export const joinReqBodySchema = z.object({
   gameId: z.string().nonempty(),
+  roomId: z.string().optional(),
   userId: z.string().nonempty(),
   username: z.string().optional(),
   draft: z.boolean().optional(),
   specs: z.boolean().optional(),
+});
+
+export const CreateReqBodySchema = z.object({
+  gameId: z.string().nonempty(),
+  roomId: z.string().optional(),
+  draft: z.boolean().optional(),
 });
 
 export type JoinReqBody = z.infer<typeof joinReqBodySchema>;

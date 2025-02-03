@@ -6,7 +6,7 @@ import { JoinReqBody } from "./types";
 import { RoomManager } from "./RoomManager";
 import { FlyApi } from "./FlyApi";
 import { ENV } from "./env";
-import { joinReqBodySchema } from "./schemas";
+import { CreateReqBodySchema, joinReqBodySchema } from "./schemas";
 import { MachinesPool } from "./MachinesPool";
 import { MachinesGC } from "./MachineGC";
 
@@ -84,7 +84,8 @@ app.post("/join", async (req, res) => {
     //
     const body = joinReqBodySchema.parse(req.body);
 
-    const { gameId, specs } = body;
+    let { roomId, gameId, specs } = body;
+    roomId = roomId || gameId;
 
     const region = req.get("Fly-Region");
     const ip = req.get("Fly-Client-IP");
@@ -93,16 +94,58 @@ app.post("/join", async (req, res) => {
 
     const st = Date.now();
     const machineId = await roomManager.getOrCreateMachineForRoom({
+      gameId,
       roomId: gameId,
       region,
       ip,
       specs,
     });
+
     console.log("Got machine ", machineId, "in", Date.now() - st, "ms");
 
     const replayHeader = `app=${ENV.POOL_APP};instance=${machineId}`;
 
     res.set("fly-replay", replayHeader).send();
+    //
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      message: e.message || "Internal Server Error",
+    });
+  }
+});
+
+app.post("/create", async (req, res) => {
+  //
+  try {
+    //
+    const body = CreateReqBodySchema.parse(req.body);
+
+    let { gameId, roomId } = body;
+    roomId = roomId || gameId;
+
+    const region = req.get("Fly-Region");
+    const ip = req.get("Fly-Client-IP");
+
+    console.log(
+      `Create request for ${gameId}/${roomId}; region: ${region}; ip: ${ip}`
+    );
+
+    const st = Date.now();
+    const machineId = await roomManager.getOrCreateMachineForRoom({
+      roomId,
+      gameId,
+      region,
+      ip,
+    });
+
+    console.log("Got machine ", machineId, "in", Date.now() - st, "ms");
+
+    const replayHeader = `app=${ENV.POOL_APP};instance=${machineId}`;
+
+    res.set("fly-replay", replayHeader).send();
+
     //
   } catch (e) {
     console.error(e);
