@@ -7,7 +7,7 @@ import { MachineConfig } from "./types";
 
 export interface GetRoomMachineOpts {
   roomId: string;
-  gameId: string;
+  autoCreate?: boolean;
   region?: string;
   ip?: string;
   specs?: boolean;
@@ -83,6 +83,10 @@ export class RoomManager {
 
     if (machineId != null && !this.pool.isLocked(machineId)) {
       return machineId;
+    }
+
+    if (opts.autoCreate === false) {
+      throw new Error("Machine not found for room " + roomId);
     }
 
     let config: Partial<MachineConfig> = null;
